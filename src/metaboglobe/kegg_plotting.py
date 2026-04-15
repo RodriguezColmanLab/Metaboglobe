@@ -1,25 +1,53 @@
 import matplotlib
 import numpy
 from matplotlib.axes import Axes
-from matplotlib.colors import Colormap
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Colormap, Normalize
 
 from metaboglobe._util import MPLColor, point_direction
 from metaboglobe.kegg_pathway import KeggMap, KeggRelation, RelationType
 
 
+def _adjust_limits(ax: Axes, kegg_map: KeggMap):
+    """Adjusts the xlim and ylim of the plot to fit the map."""
+
+    # Calculate necessary space for plot
+    xmax = 0
+    ymax = 0
+    for entry in kegg_map.entries:
+        xmax = max(entry.x, xmax)
+        ymax = max(entry.y, ymax)
+
+    if xmax == 0 or ymax == 0:
+        return  # Invalid limits
+
+    # Give some extra space
+    xsize = xmax
+    ysize = ymax
+    xmax += xsize / 10
+    ymax += ysize / 10
+
+    # Adjust the limits
+    ax.set_xlim(0, xmax)
+    ax.set_ylim(ymax, 0)
+    ax.set_aspect("equal")
+
+
 def plot_double_arrows(ax: Axes, kegg_map: KeggMap, *, facecolor: MPLColor = "#eeeeee",
-                       hide_ticks_and_spines: bool = True, reaction_cmap: Colormap | None = None,
+                       hide_ticks_and_spines: bool = True, reaction_cmap: Colormap | str | None = None,
                        reaction_nan_color: MPLColor = "#888888", reaction_linewidth: float = 2,
-                       plot_entries_without_relations: bool = False):
-    """Draws a plot. Reactions """
+                       plot_entries_without_relations: bool = False) -> ScalarMappable:
+    """Draws the KEGG map, with double arrows for revisble/two-way-irrervisble reactions. Returns a mappable for use
+    in figure.colorbar(...)."""
 
     if reaction_cmap is None:
         reaction_cmap = matplotlib.colormaps.get_cmap("coolwarm")
+    elif isinstance(reaction_cmap, str):
+        reaction_cmap = matplotlib.colormaps.get_cmap(reaction_cmap)
 
     # Set up plot
     ax.set_facecolor(facecolor)
-    ax.set_xlim(0, 1000)
-    ax.set_ylim(1000, 0)
+    _adjust_limits(ax, kegg_map)
     if hide_ticks_and_spines:
         ax.set_xticks([])
         ax.set_yticks([])
@@ -37,6 +65,8 @@ def plot_double_arrows(ax: Axes, kegg_map: KeggMap, *, facecolor: MPLColor = "#e
     for relation in kegg_map.relations:
         _draw_relation(ax, kegg_map, relation, cmap=reaction_cmap, reaction_linewidth=reaction_linewidth,
                        reaction_nan_color=reaction_nan_color)
+
+    return ScalarMappable(Normalize(vmin=0, vmax=1), reaction_cmap)
 
 
 def _draw_relation(ax: Axes, kegg_map: KeggMap, relation: KeggRelation, *, cmap: Colormap, reaction_linewidth: float, reaction_nan_color: MPLColor):
@@ -80,7 +110,7 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, relation: KeggRelation, cmap: Co
         direction = point_direction(x1, y1, x2, y2)
         orthogonal_direction = direction.orthogonal()
 
-        arrow_distance = 5 if relation.relation_type == RelationType.REACTION_REVERSIBLE else 8
+        arrow_distance = 5 if relation.relation_type == RelationType.REACTION_REVERSIBLE else 12
 
         x1_forward = x1 + orthogonal_direction.dx() * arrow_distance
         x2_forward = x2 + orthogonal_direction.dx() * arrow_distance
