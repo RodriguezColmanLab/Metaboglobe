@@ -171,14 +171,3 @@ def add_compass_output(adata: AnnData, compass_folder: str, *, obsm_key: str = _
 
     adata.obsm[obsm_key] = reaction_scores.T
 
-
-def color_model(adata: AnnData, kegg_map: KeggMap, *, groupby: str, group: str, reference: str = "rest", obsm_key: str = "compass",
-                min_percentile: float = 10, max_percentile: float = 90):
-    if not obsm_key in adata.obsm:
-        raise ValueError(f"Key '{obsm_key}' not found in adata.obsm")
-
-    reaction_scores = adata.obsm[obsm_key]
-
-
-
-
