@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "metaboglobe"
+description = "Libary to plot metabolic pathways and any pertubations"
+version = "0.1.0"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+    "matplotlib>=3.10.8",
+    "pandas>=2.3.3",
+    "scanpy>=1.11.5",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pandas-stubs"
+]
+
+[tool.hatch.build]
+include = ["metaboglobe/data/*.csv"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/metaboglobe"]  # So that we can use `import metaboglobe`
