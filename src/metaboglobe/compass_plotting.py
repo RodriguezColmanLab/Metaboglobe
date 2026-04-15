@@ -160,14 +160,16 @@ def add_compass_output(adata: AnnData, compass_folder: str, *, obsm_key: str = _
     values in the column named `microclustering_mapping` ("microclustering" by default) are expected to be the
     names of the microclusters."""
 
-    reaction_scores = pandas.read_csv(os.path.join(compass_folder, "reactions.tsv"), delimiter="\t", index_col=0)
+    reaction_penalties = pandas.read_csv(os.path.join(compass_folder, "reactions.tsv"), delimiter="\t", index_col=0)
 
     if microclustering_mapping is not None:
         # Undo the microclustering
         if not microclustering_column in microclustering_mapping.columns:
             raise ValueError(f"Column '{microclustering_column}' not found in microclustering_mapping.")
-        reaction_scores = reaction_scores[list(microclustering_mapping[microclustering_column])]
-        reaction_scores.columns = microclustering_mapping.index
+        reaction_penalties = reaction_penalties[list(microclustering_mapping[microclustering_column])]
+        reaction_penalties.columns = microclustering_mapping.index
 
-    adata.obsm[obsm_key] = reaction_scores.T
+    # To convert to scores, take the minus log of the penalties (as done on
+    # https://github.com/wagnerlab-berkeley/Compass/blob/6084e47607bd2258534267a31b6f951fa25b6700/docs/notebooks/compass_analysis.py#L43 )
+    adata.obsm[obsm_key] = -numpy.log(reaction_penalties.T + 1)
 
