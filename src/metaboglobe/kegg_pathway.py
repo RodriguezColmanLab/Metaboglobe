@@ -167,9 +167,9 @@ class KeggMap:
         self._relations_backward_values = dict()
         self._reaction_by_compound_names = defaultdict(list)
 
-    def add_entry(self, entry_id: int, entry: KeggEntry):
+    def add_entry(self, entry: KeggEntry):
         """Adds an entry to the plot. Entries are compounds, orthologs, etc."""
-        self._entries_by_id[entry_id] = entry
+        self._entries_by_id[entry.entry_id] = entry
 
     def _search_relation(self, substrate_id: int, product_id: int) -> KeggRelation | None:
         for relation in self._relations:
@@ -226,6 +226,11 @@ class KeggMap:
                         self._reaction_by_compound_names[optimize_for_matching(name)].append(relation)
 
     def match_reaction(self, substrate_names: list[str], product_names: list[str]) -> KeggReactionWithReversion | None:
+        """Given a list of substrate names and product names, searches for a reaction in this pathway that matches
+        one of the substrate names and one of the product names. The given names are expected to be names like
+        "D-Fructose-6P". The method uses all the known names of Kegg to match. If a name is provided without
+        specifying the stereoisomer (like "Fructose-6P", without the "D-") it can match to any stereoisomer in the
+        pathway. Returns None if there was no match."""
         substrate_names = [optimize_for_matching(name) for name in substrate_names]
         product_names = [optimize_for_matching(name) for name in product_names]
 
@@ -267,13 +272,11 @@ class KeggMap:
         return self._relations
 
     def set_reaction_score(self, reaction: KeggReactionWithReversion, score: float):
-        """Adds a reaction score to the map with the given id, which can be used for coloring. The score must be
-        between 0 and 1 (inclusive)."""
+        """Adds a reaction score to the map with the given id, which can be used for coloring. Raises ValueError
+        if a score was already set for the reaction in the given direction, or if the score is NaN."""
         if numpy.isnan(score):
             raise ValueError(f"Score is NaN for {self._relation_to_str(reaction.relation)}")
 
-        if score < 0 or score > 1:
-            raise ValueError(f"Score must be between 0 and 1 or NaN, was {score}")
         if reaction.reversed:
             if reaction in self._relations_backward_values:
                 raise ValueError(f"Duplicate backward score for {self._relation_to_str(reaction.relation)}")
