@@ -222,8 +222,6 @@ class KeggMap:
                 if entry.entry_type == EntryType.COMPOUND:
                     names = _ACCESSION_NUMBER_TO_NAMES.get(entry.name, [])
                     for name in names:
-                        if "glucose" in name.lower() and "phosphate" in name.lower():
-                            print(name)
                         self._reaction_by_compound_names[optimize_for_matching(name)].append(relation)
 
     def match_reaction(self, substrate_names: list[str], product_names: list[str]) -> KeggReactionWithReversion | None:
