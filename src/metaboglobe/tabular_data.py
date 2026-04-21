@@ -42,6 +42,19 @@ def _parse_compounds(full_reaction_equation: str, compounds_str: str):
 
 def insert_values_in_map(kegg_map: KeggMap, data_frame: pandas.DataFrame, *, reaction_col: str, value_col: str,
                          reversed_col: str | None = None) -> None:
+    """Reads values from the given data frame into the given metabolic map. The dataframe must have a column with
+    reaction equations, and a column with values. Optionally, it can also have a column that indicates whether the
+    reaction must be reversed or not. (If true, the corresponding value is registered for the inverse reaction instead.)
+    The reaction equations must be in the format:
+
+    1.00 * ATP [c] + 1.00 * Coenzyme A [c] + 1.00 * acetate [c] --> 1.00 * AMP [c] + 1.00 * Diphosphate [c] + 1.00 * Acetyl-CoA [c] AACS; ACSS2
+
+    Everything after the first square brack [ is ignored, so the above equation is equivalent to:
+
+    1 * ATP + 1 * Coenzyme A + 1 * acetate --> 1 * AMP + 1 * Diphosphate + 1 * Acetyl-CoA
+
+    The "-->", "+" and "*" are mandatory though.
+    """
 
     reactions = data_frame[reaction_col]
     values = data_frame[value_col]
