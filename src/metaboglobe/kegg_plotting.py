@@ -1,11 +1,36 @@
+from typing import NamedTuple
+
 import matplotlib
 import numpy
+from numpy import ndarray
 from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Colormap, Normalize
 
 from metaboglobe._util import MPLColor, point_direction
 from metaboglobe.kegg_pathway import KeggMap, KeggRelation, RelationType
+
+
+class PlottingParameters:
+
+    facecolor: MPLColor = "#eeeeee"
+    hide_ticks_and_spines: bool = True
+
+    flux_cmap: Colormap = matplotlib.colormaps.get_cmap("coolwarm")
+    flux_vmin: float = 0
+    flux_vmax: float = 1
+    flux_nan_color: MPLColor = "#888888"
+    flux_linewidth: float = 2
+
+    plot_entries_without_relations: bool = False
+
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            # We just check whether the attribute exists, we don't type check (would be nice to have though)
+            if not hasattr(self, key):
+                raise ValueError(f"Invalid plotting parameter: {key}")
+
+            setattr(self, key, value)
 
 
 def _adjust_limits(ax: Axes, kegg_map: KeggMap):
@@ -33,22 +58,18 @@ def _adjust_limits(ax: Axes, kegg_map: KeggMap):
     ax.set_aspect("equal")
 
 
-def plot_double_arrows(ax: Axes, kegg_map: KeggMap, *, facecolor: MPLColor = "#eeeeee",
-                       hide_ticks_and_spines: bool = True, reaction_cmap: Colormap | str | None = None,
-                       reaction_nan_color: MPLColor = "#888888", reaction_linewidth: float = 2,
-                       plot_entries_without_relations: bool = False) -> ScalarMappable:
+def plot_double_arrows(ax: Axes, kegg_map: KeggMap, **kwargs) -> ScalarMappable:
     """Draws the KEGG map, with double arrows for revisble/two-way-irrervisble reactions. Returns a mappable for use
-    in figure.colorbar(...)."""
+    in figure.colorbar(...).
 
-    if reaction_cmap is None:
-        reaction_cmap = matplotlib.colormaps.get_cmap("coolwarm")
-    elif isinstance(reaction_cmap, str):
-        reaction_cmap = matplotlib.colormaps.get_cmap(reaction_cmap)
+    Any kwargs parameters are passed on to PlottingParameters, see that class for available parameters.
+    """
+    plotting_parameters = PlottingParameters(**kwargs)
 
     # Set up plot
-    ax.set_facecolor(facecolor)
+    ax.set_facecolor(plotting_parameters.facecolor)
     _adjust_limits(ax, kegg_map)
-    if hide_ticks_and_spines:
+    if plotting_parameters.hide_ticks_and_spines:
         ax.set_xticks([])
         ax.set_yticks([])
         ax.spines["top"].set_visible(False)
@@ -58,27 +79,26 @@ def plot_double_arrows(ax: Axes, kegg_map: KeggMap, *, facecolor: MPLColor = "#e
 
     # Draw entries
     for entry in kegg_map.entries:
-        if plot_entries_without_relations or kegg_map.has_relations(entry):
+        if plotting_parameters.plot_entries_without_relations or kegg_map.has_relations(entry):
             entry.entry_type.draw_entry(ax, entry)
 
     # Draw relations
     for relation in kegg_map.relations:
-        _draw_relation(ax, kegg_map, relation, cmap=reaction_cmap, reaction_linewidth=reaction_linewidth,
-                       reaction_nan_color=reaction_nan_color)
+        _draw_relation(ax, kegg_map, relation, plotting_parameters)
 
-    return ScalarMappable(Normalize(vmin=0, vmax=1), reaction_cmap)
+    return ScalarMappable(Normalize(vmin=plotting_parameters.flux_vmin, vmax=plotting_parameters.flux_vmax), plotting_parameters.flux_cmap)
 
 
-def _draw_relation(ax: Axes, kegg_map: KeggMap, relation: KeggRelation, *, cmap: Colormap, reaction_linewidth: float, reaction_nan_color: MPLColor):
+def _draw_relation(ax: Axes, kegg_map: KeggMap, relation: KeggRelation, plotting_parameters: PlottingParameters):
     if relation.relation_type == RelationType.ECREL:
         return  # Not interested in subsequent enzymes
     elif relation.relation_type == RelationType.MAPLINK:
         _draw_maplink(ax, kegg_map, relation)
     elif relation.relation_type.is_reaction():
-        _draw_reaction(ax, kegg_map, relation, cmap=cmap, linewidth=reaction_linewidth, nan_color=reaction_nan_color)
+        _draw_reaction(ax, kegg_map, relation, plotting_parameters)
 
 
-def _draw_reaction(ax: Axes, kegg_map: KeggMap, relation: KeggRelation, cmap: Colormap, nan_color: MPLColor, linewidth: float):
+def _draw_reaction(ax: Axes, kegg_map: KeggMap, relation: KeggRelation, plotting_parameters: PlottingParameters):
     from_entry = kegg_map.entry(relation.substrate_id)
     to_entry = kegg_map.entry(relation.product_id)
     x1 = from_entry.x
@@ -105,6 +125,8 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, relation: KeggRelation, cmap: Co
             y1 += from_entry.height / 2
             y2 -= to_entry.height / 2
 
+    vmin = plotting_parameters.flux_vmin
+    vspread = plotting_parameters.flux_vmax - plotting_parameters.flux_vmin
     if relation.relation_type in {RelationType.REACTION_REVERSIBLE, RelationType.REACTION_TWO_IRREVERSIBLE}:
         # Need to draw two arrows
         direction = point_direction(x1, y1, x2, y2)
@@ -122,14 +144,17 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, relation: KeggRelation, cmap: Co
         y1_backward = y2 - orthogonal_direction.dy() * arrow_distance
         y2_backward = y1 - orthogonal_direction.dy() * arrow_distance
 
-        forward_value = kegg_map.forward_value(relation)
-        _draw_arrow(ax, x1_forward, y1_forward, x2_forward, y2_forward, cmap, forward_value, nan_color=nan_color, linewidth=linewidth)
+        forward_value = (kegg_map.forward_value(relation) - vmin) / vspread
+        _draw_arrow(ax, x1_forward, y1_forward, x2_forward, y2_forward, plotting_parameters.flux_cmap, forward_value,
+                    nan_color=plotting_parameters.flux_nan_color, linewidth=plotting_parameters.flux_linewidth)
 
-        backward_value = kegg_map.backward_value(relation)
-        _draw_arrow(ax, x1_backward, y1_backward, x2_backward, y2_backward, cmap, backward_value, nan_color=nan_color, linewidth=linewidth)
+        backward_value = (kegg_map.backward_value(relation) - vmin) / vspread
+        _draw_arrow(ax, x1_backward, y1_backward, x2_backward, y2_backward, plotting_parameters.flux_cmap, backward_value,
+                    nan_color=plotting_parameters.flux_nan_color, linewidth=plotting_parameters.flux_linewidth)
     else:
-        forward_value = kegg_map.forward_value(relation)
-        _draw_arrow(ax, x1, y1, x2, y2, cmap, forward_value, nan_color=nan_color, linewidth=linewidth)
+        forward_value = (kegg_map.forward_value(relation) - vmin) / vspread
+        _draw_arrow(ax, x1, y1, x2, y2, plotting_parameters.flux_cmap, forward_value,
+                    nan_color=plotting_parameters.flux_nan_color, linewidth=plotting_parameters.flux_linewidth)
 
 def _draw_arrow(ax: Axes, x1: float, y1: float, x2: float, y2: float, cmap: Colormap, value: float, nan_color: MPLColor, linewidth: float):
     if numpy.isnan(value):

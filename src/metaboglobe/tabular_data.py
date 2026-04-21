@@ -40,8 +40,8 @@ def _parse_compounds(full_reaction_equation: str, compounds_str: str):
     return compounds
 
 
-def insert_values_in_map(kegg_map: KeggMap, data_frame: pandas.DataFrame, reaction_col: str = "formula",
-                         reversed_col: str | None = None, value_col: str = "value") -> None:
+def insert_values_in_map(kegg_map: KeggMap, data_frame: pandas.DataFrame, *, reaction_col: str, value_col: str,
+                         reversed_col: str | None = None) -> None:
 
     reactions = data_frame[reaction_col]
     values = data_frame[value_col]
