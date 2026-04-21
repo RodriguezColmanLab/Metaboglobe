@@ -21,6 +21,41 @@ metaboglobe.kegg_plotting.plot_double_arrows(ax, kegg_map)
 plt.show()
 ```
 
+
+## How to use with a data table
+Let's say you have a pandas DataFrame like this:
+
+```python
+import pandas
+
+data_frame = pandas.DataFrame({
+    "reactions": ["1.00 * Citrate [c] --> 1.00 * Isocitrate [c] ACO1; IREB2", 
+                "1.00 * Isocitrate [c] --> 1.00 * alpha-Ketoglutarate [c] ACO1; IREB2",
+                "1.00 * alpha-Ketoglutarate [c] --> 1.00 * Succinyl-CoA [c] OGDH; DLST"],
+    "flux_values": [0.5, 1.0, 0.2]
+})
+```
+
+Then you can add the flux values to the KEGG map using the `insert_values_in_map` function:
+
+```python
+import metaboglobe.tabular_data
+
+kegg_map = ...  # See above
+data_frame = ...  # See above
+
+metaboglobe.tabular_data.insert_values_in_map(kegg_map, data_frame, reaction_col="reactions", value_col="flux_values")
+```
+
+And then plot like above.
+
+Normally your data would not be hardcoded, but come from a data file such as a CSV file. If you're unfamiliar with Pandas, it's easy to load from a CSV file. For example, if you have a CSV file with the same columns as above, you can load it like this:
+
+```python
+import pandas
+data_frame = pandas.read_csv("path/to/your/data.csv")
+```
+
 ## How to use with Compass data
 [Compass](https://github.com/wagnerlab-berkeley/Compass) is a tool to predict metabolic fluxes from single-cell RNA-seq data. This package provides a convenient way to visualize Compass results on the KEGG metabolic pathway maps.
 
