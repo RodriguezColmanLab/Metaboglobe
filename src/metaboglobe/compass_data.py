@@ -56,7 +56,7 @@ class CompassComparison(ABC):
     """For plotting a comparison on a KEGG map."""
 
     @abstractmethod
-    def apply_color(self, kegg_map: KeggMap, group: str):
+    def insert_values_in_map(self, kegg_map: KeggMap, group: str):
         """Applies the comparison to the given KEGG map, by coloring the reactions in the map according to the values
         of the given group."""
         return NotImplemented
@@ -93,7 +93,7 @@ class _ComparisonToSingleCellValues(CompassComparison):
         # Calculate reaction unscaled means
         self._reactions_aggregated = scanpy.get.aggregate(adata, by=self._groupby, func="mean", obsm=self._obsm_key)
 
-    def apply_color(self, kegg_map: KeggMap, group: str):
+    def insert_values_in_map(self, kegg_map: KeggMap, group: str):
         reaction_ids = self._reactions_aggregated.var_names
 
         group_index = self._reactions_aggregated.obs_names.get_loc(group)
