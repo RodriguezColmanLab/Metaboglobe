@@ -10,7 +10,7 @@ from matplotlib.axes import Axes
 from typing import NamedTuple, Collection, Any
 
 from metaboglobe._util import optimize_for_display, wrap_text, optimize_for_matching, MPLColor, \
-    get_name_without_enantiomers
+    get_names_without_stereoisomers
 
 
 def _read_accession_number_to_name_mapping() -> dict[str, list[str]]:
@@ -37,10 +37,9 @@ def _parse_name_list(names_unparsed: str) -> list[str]:
     for name in names_unparsed.split(";"):
         name = name.strip()
 
-        # Also add the names without enantiomer specifier
+        # Also add the names without stereoisomer specifier
         # (but sometimes those variants are included by KEGG though, so we check for duplicates below)
-        name_without_enantiomers = get_name_without_enantiomers(name)
-        undesireable_names.append(name_without_enantiomers)
+        undesireable_names += list(get_names_without_stereoisomers(name))
 
         if "[" in name:
             undesireable_names.append(name)  # Too complex of a name, decrease priority
@@ -223,6 +222,8 @@ class KeggMap:
                 if entry.entry_type == EntryType.COMPOUND:
                     names = _ACCESSION_NUMBER_TO_NAMES.get(entry.name, [])
                     for name in names:
+                        if "glucose" in name.lower() and "phosphate" in name.lower():
+                            print(name)
                         self._reaction_by_compound_names[optimize_for_matching(name)].append(relation)
 
     def match_reaction(self, substrate_names: list[str], product_names: list[str]) -> KeggReactionWithReversion | None:
@@ -329,7 +330,7 @@ def load_kegg_map(path: str) -> KeggMap:
         width = float(graphics.attrib["width"])
         height = float(graphics.attrib["height"])
 
-        kegg_map.add_entry(entry_id, KeggEntry(entry_id, name, x, y, width, height, entry_type))
+        kegg_map.add_entry(KeggEntry(entry_id, name, x, y, width, height, entry_type))
 
     # Read reactions
     for reaction in root.findall("reaction"):

@@ -1,4 +1,6 @@
+import itertools
 import math
+from typing import Iterable
 
 _ENANTIOMER_MARKERS = ["alpha-", "beta-", "gamma-", "D-", "L-"]
 
@@ -90,7 +92,7 @@ def wrap_text(input_str: str, max_line_length: int) -> str:
     return "\n".join(lines)
 
 
-def _enantiomer_search_at_start(haystack: str) -> int:
+def _stereoisomer_search_at_start(haystack: str) -> int:
     """Returns 0 if no enantiomer start (such as "D-") is found. Otherwise, returns the length of the enantiomer start.
     """
     for enantiomer_marker in _ENANTIOMER_MARKERS:
@@ -99,22 +101,34 @@ def _enantiomer_search_at_start(haystack: str) -> int:
     return 0
 
 
-def get_name_without_enantiomers(name: str) -> str:
-    """Removes enantiomer markers like "D-" and "alpha-" from the name. For example, "alpha-D-glucose-6-phosphate"
-     would become "glucose-6-phosphate"."""
-    name_without_enantiomers = ""
+def get_names_without_stereoisomers(name: str) -> Iterable[str]:
+    """Removes enantiomer markers like "D-" and "alpha-" from the name. Returns all possible variations without at least
+    one specifier. So "alpha-D-glucose-6-phosphate" would return ["alpha-glucose-6-phosphate", "D-glucose-6-phosphate",
+    "glucose-6-phosphate"]."""
+    stereoisomers_all = set()
 
     i = 0
     while i < len(name):
         if i == 0 or name[i - 1] in "-(":
             # Start of a new word, check for enantiomer marker
             name_from_here = name[i:]
-            enantiomer_search = _enantiomer_search_at_start(name_from_here)
-            if enantiomer_search > 0:
-                i += enantiomer_search
+            stereoisomer_length = _stereoisomer_search_at_start(name_from_here)
+            if stereoisomer_length > 0:
+                stereoisomers_all.add((i, i + stereoisomer_length))  # Found an stereoisomer
+                i += stereoisomer_length
                 continue
 
-        name_without_enantiomers += name[i]
         i += 1
 
-    return name_without_enantiomers
+    # Find all possible subsets of stereoisomer_variant, excluding the empty set
+    for stereroisomer_variant in _all_possible_subsets(stereoisomers_all):
+        name_without_enantiomers = name
+        for start, end in sorted(stereroisomer_variant, reverse=True):
+            name_without_enantiomers = name_without_enantiomers[:start] + name_without_enantiomers[end:]
+        yield name_without_enantiomers
+
+
+def _all_possible_subsets(s: set) -> list[set]:
+    """Returns a list of all possible subsets of the given set, excluding the empty set."""
+    s = list(s)
+    return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(1, len(s)+1))

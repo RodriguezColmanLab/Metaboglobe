@@ -94,6 +94,7 @@ class _ComparisonToSingleCellValues(CompassComparison):
         self._reactions_aggregated = scanpy.get.aggregate(adata, by=self._groupby, func="mean", obsm=self._obsm_key)
 
     def insert_values_in_map(self, kegg_map: KeggMap, group: str):
+        """Applies the values into the given KeggMap. They will be on a scale of 0 to 1."""
         reaction_ids = self._reactions_aggregated.var_names
 
         group_index = self._reactions_aggregated.obs_names.get_loc(group)
