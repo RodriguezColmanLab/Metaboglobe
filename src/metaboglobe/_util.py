@@ -11,48 +11,6 @@ MPLColor = tuple[float, float, float] \
            | tuple[tuple[float, float, float] | str, float]
 
 
-class Direction:
-    """Represents a unit vector in 2D in a given direction."""
-
-    __slots__ = "_angle_radians"
-
-    _angle_radians: float
-
-    def __init__(self, angle_radians: float):
-        self._angle_radians = angle_radians % (2 * math.pi)
-
-    @property
-    def angle_radians(self) -> float:
-        return self._angle_radians
-
-    @property
-    def angle_degrees(self) -> float:
-        return math.degrees(self._angle_radians)
-
-    def orthogonal(self) -> "Direction":
-        """Returns a direction orthogonal to this one. (90 degrees to the right.)"""
-        return Direction(angle_radians=self.angle_radians + math.pi / 2)
-
-    def opposite(self) -> "Direction":
-        """Returns a direction opposite to this one."""
-        return Direction(angle_radians=self.angle_radians + math.pi)
-
-    def dx(self) -> float:
-        """Returns the x component of the direction."""
-        return math.cos(self._angle_radians)
-
-    def dy(self) -> float:
-        """Returns the y component of the direction."""
-        return math.sin(self._angle_radians)
-
-    def __repr__(self) -> str:
-        return f"Direction({self.angle_degrees:.1f})"
-
-
-def point_direction(x1: float, y1: float, x2: float, y2: float) -> Direction:
-    """Gets the direction from point 1 to point 2."""
-    angle = math.atan2(y2 - y1, x2 - x1)
-    return Direction(angle_radians=angle)
 
 
 

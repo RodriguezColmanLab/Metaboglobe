@@ -1,0 +1,1 @@
+"""Contains code for working with vectors and curves."""

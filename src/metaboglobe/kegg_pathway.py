@@ -1,16 +1,13 @@
 from collections import defaultdict
+from enum import Enum, auto
 from importlib.resources import files
+from typing import NamedTuple, Collection, Iterable
 from xml.etree import ElementTree
 
-import matplotlib.patches
 import numpy
-import pandas
-from enum import Enum, auto
-from matplotlib.axes import Axes
-from typing import NamedTuple, Collection, Any
 
-from metaboglobe._util import optimize_for_display, wrap_text, optimize_for_matching, MPLColor, \
-    get_names_without_stereoisomers
+from metaboglobe._util import optimize_for_matching, get_names_without_stereoisomers, optimize_for_display
+from metaboglobe.math.vector_2d import Vector2
 
 
 def _read_accession_number_to_name_mapping() -> dict[str, list[str]]:
@@ -57,9 +54,6 @@ def _parse_name_list(names_unparsed: str) -> list[str]:
     return return_list
 
 
-
-
-
 _ACCESSION_NUMBER_TO_NAMES = _read_accession_number_to_name_mapping()
 
 
@@ -70,44 +64,15 @@ class EntryType(Enum):
     COMPOUND = auto()
     TITLE = auto()
 
-    def draw_entry(self, ax: Axes, entry: "KeggEntry"):
-        if self == EntryType.TITLE:
-            ax.set_title(entry.name)
-        elif self == EntryType.MAP:
-            display_name = wrap_text(entry.name, int(entry.width // 6))  # Wrap text to fit within the entry box, assuming an average character width of 6 pixels
-            rect = matplotlib.patches.Rectangle((entry.x - entry.width / 2, entry.y - entry.height / 2),
-                                                entry.width, entry.height, fill=True, color="#c1bcb8")
-            ax.add_patch(rect)
-            ax.text(entry.x, entry.y, display_name, ha="center", va="center", fontsize=6, zorder=10)
-        elif self == EntryType.COMPOUND:
-            display_names = _ACCESSION_NUMBER_TO_NAMES.get(entry.name)
-            display_name = display_names[0] if display_names is not None else entry.name
-            display_name = optimize_for_display(display_name)
-            ax.text(entry.x, entry.y, display_name, ha="center", va="center", fontsize=6, zorder=10)
-        elif self == EntryType.ORTHOLOG:
-            return  # Not interested in orthologs, they just clutter the figure
-        elif self == EntryType.GENE:  # Genes
-            if "," in entry.name:
-                display_name = entry.name.split(",")[0] + ", etc."
-            else:
-                display_name = entry.name
-            ax.text(entry.x, entry.y, display_name, ha="center", va="center", fontsize=6, zorder=10)
-        else:
-            raise ValueError(f"Unknown entry type: {self}")
+
+class ReactionType(Enum):
+    REVERSIBLE = auto()  # One enzyme, goes both ways
+    IRREVERSIBLE = auto()  # Only one way is possible
 
 
 class RelationType(Enum):
-    REACTION_REVERSIBLE = auto()  # One enzyme, goes both ways
-    REACTION_TWO_IRREVERSIBLE = auto()  # Both ways are possible, but using different enzymes
-    REACTION_IRREVERSIBLE = auto()  # Only one way is possible
-
     ECREL = auto()
     MAPLINK = auto()
-
-    def is_reaction(self) -> bool:
-        """Checks if this relation represents a reaction between compounds."""
-        return (self == RelationType.REACTION_IRREVERSIBLE or self == RelationType.REACTION_REVERSIBLE
-                or self == RelationType.REACTION_TWO_IRREVERSIBLE)
 
 
 class KeggEntry(NamedTuple):
@@ -119,13 +84,24 @@ class KeggEntry(NamedTuple):
     height: float
     entry_type: EntryType
 
+    def xy(self) -> Vector2:
+        return Vector2(self.x, self.y)
+
 
 class KeggRelation(NamedTuple):
-
     """Represents a relation in the KEGG pathway map."""
+    from_id: int
+    to_id: int
+    compound_id: int
+    relation_type: RelationType
+
+
+class KeggReaction(NamedTuple):
+    """Represents a chemical reaction in the KEGG pathway map."""
     substrate_id: int
     product_id: int
-    relation_type: RelationType
+    gene_id: int
+    reaction_type: ReactionType
 
     @property
     def substrate_product_tuple(self) -> tuple[int, int]:
@@ -136,8 +112,15 @@ class KeggRelation(NamedTuple):
 class KeggReactionWithReversion(NamedTuple):
     """Represents a reaction in the KEGG pathway map, as well as a flag to indicate whether we are looking at the
     reverse of the reaction."""
-    relation: KeggRelation
+    reaction: KeggReaction
     reversed: bool
+
+
+def get_display_name(kegg_accession_id: str) -> str:
+    """Gets the display name (including LaTeX codes) for the given Kegg Accession ID (like "C00092")."""
+    display_names = _ACCESSION_NUMBER_TO_NAMES.get(kegg_accession_id)
+    display_name = display_names[0] if display_names is not None else kegg_accession_id
+    return optimize_for_display(display_name)
 
 
 def _check_for_match(matching_names: list[str], kegg_identifier: str) -> bool:
@@ -152,77 +135,55 @@ def _check_for_match(matching_names: list[str], kegg_identifier: str) -> bool:
 class KeggMap:
     _entries_by_id: dict[int, KeggEntry]
 
-    _relations: set[KeggRelation]
-    _relations_forward_values: dict[tuple[int, int], float]
-    _relations_backward_values: dict[tuple[int, int], float]
+    _relations_by_compound_id: dict[int, set[KeggRelation]]
 
-    _reaction_by_compound_names: dict[str, list[KeggRelation]]
+    _reactions: set[KeggReaction]
+    _reactions_forward_values: dict[tuple[int, int], float]
+    _reactions_backward_values: dict[tuple[int, int], float]
+    _reaction_by_compound_names: dict[str, list[KeggReaction]]
 
     def __init__(self):
         self._entries_by_id = dict()
+        self._relations_by_compound_id = defaultdict(set)
 
-        self._relations = set()
-        self._relations_forward_values = dict()
-        self._relations_backward_values = dict()
+        self._reactions = set()
+        self._reactions_forward_values = dict()
+        self._reactions_backward_values = dict()
         self._reaction_by_compound_names = defaultdict(list)
 
     def add_entry(self, entry: KeggEntry):
         """Adds an entry to the plot. Entries are compounds, orthologs, etc."""
         self._entries_by_id[entry.entry_id] = entry
 
-    def _search_relation(self, substrate_id: int, product_id: int) -> KeggRelation | None:
-        for relation in self._relations:
-            if relation.substrate_id == substrate_id and relation.product_id == product_id:
-                return relation
+    def _search_reaction(self, substrate_id: int, product_id: int) -> KeggReaction | None:
+        for reaction in self._reactions:
+            if reaction.substrate_id == substrate_id and reaction.product_id == product_id:
+                return reaction
         return None
 
-    def _remove_relation(self, relation: KeggRelation) -> None:
-        """Removes a relation, both from the list and from the search indices. Raises KeyError if the relation didn't
-        exist."""
+    def add_reaction(self, substrate_id: int, product_id: int, enzyme_id: int, reaction_type: ReactionType):
+        """Relations connect compounds, identified using the entry IDs. The enzyme_id must point at a GENE entry."""
+        if not self._entries_by_id[substrate_id].entry_type == EntryType.COMPOUND:
+            raise ValueError("Substrate ID must be of type COMPOUND")
+        if not self._entries_by_id[product_id].entry_type == EntryType.COMPOUND:
+            raise ValueError("Product ID must be of type COMPOUND")
+        if not self._entries_by_id[enzyme_id].entry_type == EntryType.GENE:
+            raise ValueError("Enzyme ID must be of type GENE")
 
-        self._relations.remove(relation)
-        if relation.relation_type.is_reaction():
-
-            # Remove all substrates and products
-            for entry_id in relation.substrate_product_tuple:
-                entry = self._entries_by_id[entry_id]
-                if entry.entry_type == EntryType.COMPOUND:
-
-                    # Find all names of this entry that we know
-                    names = _ACCESSION_NUMBER_TO_NAMES.get(entry.name, [])
-                    for name in names:
-
-                        reactions_with_name = self._reaction_by_compound_names[optimize_for_matching(name)]
-                        reactions_with_name.remove(relation)
-
-    def add_relation(self, substrate_id: int, product_id: int, relation_type: RelationType):
-        """Relations connect entries, identified using the entry IDs."""
-
-        relation = KeggRelation(substrate_id, product_id, relation_type)
-
-        if relation_type.is_reaction():
-            # Sometimes reversible reactions are annotated as two irreversible reactions in both directions.
-            # In that case, we only want to add one reversible reaction, and ignore the other one.
-            reversed_entry = self._search_relation(product_id, substrate_id)
-            if reversed_entry is not None:
-                # Found the reaction in the other direction, update it to be two-way, but still irreversible (because different enzymes)
-                if reversed_entry.relation_type == RelationType.REACTION_IRREVERSIBLE:
-                    # We need to remove it. The code below will add a new, two-irreversible reaction
-                    self._remove_relation(reversed_entry)
-                    relation = KeggRelation(product_id, substrate_id, RelationType.REACTION_TWO_IRREVERSIBLE)
-                else:
-                    return  # Can leave as-is, nothing to do
-
-        self._relations.add(relation)
+        reaction = KeggReaction(substrate_id, product_id, enzyme_id, reaction_type)
+        self._reactions.add(reaction)
 
         # Populate compound name mappings
-        if relation_type.is_reaction():
-            for entry_id in [substrate_id, product_id]:
-                entry = self._entries_by_id[entry_id]
-                if entry.entry_type == EntryType.COMPOUND:
-                    names = _ACCESSION_NUMBER_TO_NAMES.get(entry.name, [])
-                    for name in names:
-                        self._reaction_by_compound_names[optimize_for_matching(name)].append(relation)
+        for entry_id in [substrate_id, product_id]:
+            entry = self._entries_by_id[entry_id]
+            if entry.entry_type == EntryType.COMPOUND:
+                names = _ACCESSION_NUMBER_TO_NAMES.get(entry.name, [])
+                for name in names:
+                    self._reaction_by_compound_names[optimize_for_matching(name)].append(reaction)
+
+    def add_relation(self, from_id: int, to_id: int, compound_id: int, relation_type: RelationType):
+        """Relations connect entries, identified using the entry IDs."""
+        self._relations_by_compound_id[compound_id].add(KeggRelation(from_id, to_id, compound_id, relation_type))
 
     def match_reaction(self, substrate_names: list[str], product_names: list[str]) -> KeggReactionWithReversion | None:
         """Given a list of substrate names and product names, searches for a reaction in this pathway that matches
@@ -234,31 +195,31 @@ class KeggMap:
         product_names = [optimize_for_matching(name) for name in product_names]
 
         for substrate_name in substrate_names:
-            for relation in self._reaction_by_compound_names.get(substrate_name, []):
+            for reaction in self._reaction_by_compound_names.get(substrate_name, []):
                 # Found a relation with at least one match somewhere
 
-                relation_substrate_kegg_accession = self._entries_by_id[relation.substrate_id].name
-                relation_product_kegg_accession = self._entries_by_id[relation.product_id].name
+                relation_substrate_kegg_accession = self._entries_by_id[reaction.substrate_id].name
+                relation_product_kegg_accession = self._entries_by_id[reaction.product_id].name
 
                 if (_check_for_match([substrate_name], relation_substrate_kegg_accession)
                         and _check_for_match(product_names, relation_product_kegg_accession)):
                     # Found a match!
-                    return KeggReactionWithReversion(relation, reversed=False)
+                    return KeggReactionWithReversion(reaction, reversed=False)
 
-                if (relation.relation_type != RelationType.REACTION_IRREVERSIBLE and
+                if (reaction.reaction_type != ReactionType.IRREVERSIBLE and
                         (_check_for_match([substrate_name], relation_product_kegg_accession)
                         and _check_for_match(product_names, relation_substrate_kegg_accession))):
                     # Found a reverse match!
-                    return KeggReactionWithReversion(relation, reversed=True)
+                    return KeggReactionWithReversion(reaction, reversed=True)
         return None
 
-    def _relation_to_str(self, relation: KeggRelation) -> str:
-        return (_ACCESSION_NUMBER_TO_NAMES[self._entries_by_id[relation.substrate_id].name][0] + " -> "
-                + _ACCESSION_NUMBER_TO_NAMES[self._entries_by_id[relation.product_id].name][0])
+    def _reaction_to_str(self, reaction: KeggReaction) -> str:
+        return (_ACCESSION_NUMBER_TO_NAMES[self._entries_by_id[reaction.substrate_id].name][0] + " -> "
+                + _ACCESSION_NUMBER_TO_NAMES[self._entries_by_id[reaction.product_id].name][0])
 
-    def entry(self, entry_id: int) -> KeggEntry | None:
-        """Gets an entry from the map with the given id (as added using add_entry). Returns None if not found."""
-        return self._entries_by_id.get(entry_id, None)
+    def entry(self, entry_id: int) -> KeggEntry:
+        """Gets an entry from the map with the given id (as added using add_entry). Raises KeyError if not found."""
+        return self._entries_by_id[entry_id]
 
     @property
     def entries(self) -> Collection[KeggEntry]:
@@ -266,39 +227,56 @@ class KeggMap:
         return self._entries_by_id.values()
 
     @property
-    def relations(self) -> Collection[KeggRelation]:
+    def reactions(self) -> Collection[KeggReaction]:
+        """Gets all available reaction."""
+        return self._reactions
+
+    @property
+    def relations(self) -> Iterable[KeggRelation]:
         """Gets all available relations."""
-        return self._relations
+        for relations in self._relations_by_compound_id.values():
+            yield from relations
 
     def set_reaction_score(self, reaction: KeggReactionWithReversion, score: float):
         """Adds a reaction score to the map with the given id, which can be used for coloring. Raises ValueError
         if a score was already set for the reaction in the given direction, or if the score is NaN."""
         if numpy.isnan(score):
-            raise ValueError(f"Score is NaN for {self._relation_to_str(reaction.relation)}")
+            raise ValueError(f"Score is NaN for {self._reaction_to_str(reaction.reaction)}")
 
         if reaction.reversed:
-            if reaction in self._relations_backward_values:
-                raise ValueError(f"Duplicate backward score for {self._relation_to_str(reaction.relation)}")
-            self._relations_backward_values[reaction.relation.substrate_product_tuple] = score
+            if reaction in self._reactions_backward_values:
+                raise ValueError(f"Duplicate backward score for {self._reaction_to_str(reaction.reaction)}")
+            self._reactions_backward_values[reaction.reaction.substrate_product_tuple] = score
         else:
-            if reaction in self._relations_forward_values:
-                raise ValueError(f"Duplicate forward score for {self._relation_to_str(reaction.relation)}")
-            self._relations_forward_values[reaction.relation.substrate_product_tuple] = score
+            if reaction in self._reactions_forward_values:
+                raise ValueError(f"Duplicate forward score for {self._reaction_to_str(reaction.reaction)}")
+            self._reactions_forward_values[reaction.reaction.substrate_product_tuple] = score
 
-    def forward_value(self, reaction: KeggRelation) -> float:
+    def forward_value(self, reaction: KeggReaction) -> float:
         """Gets the forward value for the given reaction, or NaN if not set."""
-        return self._relations_forward_values.get(reaction.substrate_product_tuple, numpy.nan)
+        return self._reactions_forward_values.get(reaction.substrate_product_tuple, numpy.nan)
 
-    def backward_value(self, reaction: KeggRelation) -> float:
+    def backward_value(self, reaction: KeggReaction) -> float:
         """Gets the backward value for the given reaction, or NaN if not set."""
-        return self._relations_backward_values.get(reaction.substrate_product_tuple, numpy.nan)
+        return self._reactions_backward_values.get(reaction.substrate_product_tuple, numpy.nan)
 
-    def has_relations(self, entry: KeggEntry) -> bool:
-        """Searches for any relations for the given entry."""
+    def has_relations_or_reactions(self, entry: KeggEntry) -> bool:
+        """Searches for any reactions for the given entry."""
         entry_id = entry.entry_id
-        for relation in self.relations:
-            if relation.substrate_id == entry_id or relation.product_id == entry_id:
-                return True
+        if entry.entry_type == EntryType.COMPOUND:
+            # Search in reactions and ECRels
+            for reaction in self._reactions:
+                if reaction.substrate_id == entry_id or reaction.product_id == entry_id:
+                    return True
+            return len(self._relations_by_compound_id[entry.entry_id]) > 0
+        elif entry.entry_type == EntryType.GENE or entry.entry_type == EntryType.MAP:
+            # Search in relations
+            for relation in self.relations:
+                if relation.from_id == entry_id or relation.to_id == entry_id:
+                    return True
+            return False
+        elif entry.entry_type == EntryType.TITLE:
+            return True  # Title by definition has a relation to the plot, even if not explicitly specified
         return False
 
 
@@ -332,19 +310,24 @@ def load_kegg_map(path: str) -> KeggMap:
 
     # Read reactions
     for reaction in root.findall("reaction"):
+        gene_id = int(reaction.attrib["id"])
         substrates = [int(s.attrib['id']) for s in reaction.findall("substrate")]
         products = [int(p.attrib['id']) for p in reaction.findall("product")]
         reversible = reaction.attrib.get("type", "reversible") == "reversible"
         for substrate in substrates:
             for product in products:
-                kegg_map.add_relation(substrate, product,
-                                      RelationType.REACTION_REVERSIBLE if reversible else RelationType.REACTION_IRREVERSIBLE)
+                kegg_map.add_reaction(substrate, product, gene_id,
+                                      ReactionType.REVERSIBLE if reversible else ReactionType.IRREVERSIBLE)
 
-    # Read other relations
+    # Read relations
     for relation in root.findall("relation"):
         entry1 = int(relation.attrib["entry1"])
         entry2 = int(relation.attrib["entry2"])
+        subtype = relation.find("subtype")
+        if subtype is None or subtype.attrib["name"] != "compound":
+            raise ValueError("Unexpected subtype,", subtype)
+        compound_id = int(subtype.attrib["value"])
         relation_type = RelationType[relation.attrib["type"].upper()]
-        kegg_map.add_relation(entry1, entry2, relation_type)
+        kegg_map.add_relation(entry1, entry2, compound_id, relation_type)
 
     return kegg_map
