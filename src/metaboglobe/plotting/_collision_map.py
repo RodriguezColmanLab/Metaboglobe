@@ -5,14 +5,13 @@ import numpy
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.cbook import simple_linear_interpolation
-from matplotlib.lines import Line2D
-from matplotlib.patches import Circle, Ellipse, FancyArrowPatch, Rectangle
+from matplotlib.patches import Circle, FancyArrowPatch, Rectangle, PathPatch
 from matplotlib.path import Path
 from matplotlib.text import Text
 from matplotlib.transforms import Bbox
 from numpy import ndarray
 
-from metaboglobe.plotting._text import estimate_width_height
+from metaboglobe.plotting._text_size import estimate_width_height
 
 
 class TextWithAnchor(NamedTuple):
@@ -64,7 +63,7 @@ class CollisionMap:
     _x_offset: int
     _y_offset: int
     _resolution: float
-    _grid: ndarray
+    _grid: ndarray  # On a scale of 0 to 255
 
     def __init__(self, ax: Axes, resolution: float = 5):
         """Initializes an empty collision map that spans the given axis."""
@@ -79,9 +78,9 @@ class CollisionMap:
         max_y = max(ylim)
         grid_width = int(math.ceil((max_x - self._x_offset) / resolution))
         grid_height = int(math.ceil((max_y - self._y_offset) / resolution))
-        self._grid = numpy.zeros((grid_height, grid_width), dtype=bool)
+        self._grid = numpy.zeros((grid_height, grid_width), dtype=numpy.uint8)
 
-    def _mark_on_grid(self, x: float, y: float, width: float = 0, height: float = 0):
+    def _mark_on_grid(self, x: float, y: float, width: float = 0, height: float = 0, weight: float = 1.0):
         grid_x = int((x - self._x_offset) / self._resolution)  # Inclusive
         grid_y = int((y - self._y_offset) / self._resolution)  # Inclusive
 
@@ -97,7 +96,7 @@ class CollisionMap:
         grid_max_x = min(grid_max_x, self._grid.shape[1])
         grid_max_y = min(grid_max_y, self._grid.shape[0])
 
-        self._grid[grid_y:grid_max_y, grid_x:grid_max_x] = True
+        self._grid[grid_y:grid_max_y, grid_x:grid_max_x] = int(weight * 255)
 
     def _fraction_free(self, location: _TextBbox) -> float:
         """Checks if the given position is free on the grid. (True if free, False if occupied.)"""
@@ -115,8 +114,7 @@ class CollisionMap:
             for grid_y in range(grid_y_min, grid_y_max + 1):
                 if grid_x < 0 or grid_y < 0 or grid_x > self._grid.shape[1] or grid_y > self._grid.shape[0]:
                     occupied_count += 1  # Out of bounds, consider as occupied
-                if self._grid[grid_y, grid_x]:
-                    occupied_count += 1  # Occupied
+                occupied_count += self._grid[grid_y, grid_x] / 255  # Occupied
                 total_count += 1
         return (total_count - occupied_count) / total_count
 
@@ -130,11 +128,19 @@ class CollisionMap:
             bbox = _TextBbox.from_artist(artist).to_bbox()
 
             self._mark_on_grid(bbox.xmin, bbox.ymin, bbox.width, bbox.height)
-        elif isinstance(artist, FancyArrowPatch):
+        elif isinstance(artist, FancyArrowPatch) or isinstance(artist, PathPatch):
+            # Plotting over reaction arrows is a bigger problem than over pathway links
+            weight = 1.0 if isinstance(artist, FancyArrowPatch) else 0.5
+
             # We have to follow the path
             path = artist.get_path()
+            vertices, codes = path.vertices, path.codes
+            if codes is None:  # If no codes have been specified, generate them ourselves
+                codes = [Path.LINETO] * len(vertices)
+                codes[0] = Path.MOVETO
+
             previous_vertex = None
-            for vertex, code in zip(path.vertices, path.codes):
+            for vertex, code in zip(vertices, codes):
                 if code == Path.MOVETO or code == Path.CLOSEPOLY:
                     previous_vertex = vertex
                     continue  # Not supported
@@ -146,7 +152,7 @@ class CollisionMap:
                     else:
                         interpolated = [vertex, previous_vertex]
                     for interpolated_vertex in interpolated:
-                        self._mark_on_grid(*interpolated_vertex)
+                        self._mark_on_grid(*interpolated_vertex, weight=weight)
                 previous_vertex = vertex
         elif isinstance(artist, Circle):
             # We just mark the center position
@@ -197,4 +203,5 @@ class CollisionMap:
 
     def debug_draw(self, ax: Axes):
         ax.imshow(self._grid, extent=(self._x_offset, self._x_offset + self._resolution * self._grid.shape[1],
-                                      self._y_offset + self._resolution * self._grid.shape[0], self._y_offset), cmap="spring", zorder=-10)
+                                      self._y_offset + self._resolution * self._grid.shape[0], self._y_offset),
+                  cmap="spring", vmin=0, vmax=255, zorder=-10)

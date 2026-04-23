@@ -24,6 +24,21 @@ class Curve2:
         self._vertices.append(point)
         self._codes.append(Path.LINETO)
 
+    def append_cut_corner_to(self, corner: Vector2, end: Vector2) -> None:
+        """Draws a line to the given end point, cutting out a diagonal corner as large as possible."""
+        start = self._vertices[-1]
+        corner_size = min(start.distance(corner) * 0.99, corner.distance(end) * 0.99)
+
+        corner_start = corner.towards(start, corner_size)
+        corner_end = corner.towards(end, corner_size)
+
+        self._vertices.append(corner_start)
+        self._codes.append(Path.LINETO)
+        self._vertices.append(corner_end)
+        self._codes.append(Path.LINETO)
+        self._vertices.append(end)
+        self._codes.append(Path.LINETO)
+
     def append_rounded_corner_to(self, *, corner: Vector2, end: Vector2, radius_px: float = 8) -> None:
         """Draws a line to the given end point, with a rounded corner of the given radius around the given corner
         location. So you'll get a straight line, until we come into the radius around the corner, where the curve

@@ -3,7 +3,8 @@ import numpy
 from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Colormap, Normalize
-from matplotlib.patches import FancyArrowPatch, ArrowStyle
+from matplotlib.patches import FancyArrowPatch, ArrowStyle, PathPatch
+from matplotlib.path import Path
 
 import metaboglobe
 from metaboglobe.plotting._collision_map import CollisionMap, TextWithAnchor
@@ -29,6 +30,10 @@ class PlottingParameters:
     compound_edgecolor: MPLColor = "#000000"
     compound_linewidth: float = 0.75
     compound_radius: float = 5
+
+    maplink_edgecolor: MPLColor = "#bbbbbb"
+    maplink_linewidth: float = 3
+    maplink_linestyle: str = ":"
 
     enzyme_textcolor: MPLColor = "#000000"
     enzyme_linewidth: float = 0.75
@@ -100,7 +105,7 @@ def plot_double_arrows(ax: Axes, kegg_map: KeggMap, **kwargs) -> ScalarMappable:
     # Draw relations and reactions
     for relation in kegg_map.relations:
         if relation.relation_type == RelationType.MAPLINK:
-            _draw_maplink(ax, kegg_map, relation)
+            _draw_maplinks(ax, kegg_map, relation, plotting_parameters)
     for reaction in kegg_map.reactions:
         _draw_reaction(ax, kegg_map, reaction, plotting_parameters)
 
@@ -244,25 +249,66 @@ def _draw_arrow(ax: Axes, x1: float, y1: float, x2: float, y2: float, cmap: Colo
         arrowstyle=arrowstyle, color=color, linewidth=linewidth))
 
 
-def _should_draw_maplink(entry_type_1: EntryType, entry_type_2: EntryType) -> bool:
-    return (entry_type_1 == EntryType.COMPOUND and entry_type_2 == EntryType.MAP) \
-        or (entry_type_1 == EntryType.MAP and entry_type_2 == EntryType.COMPOUND)
+def _draw_maplink(ax: Axes, entry1: KeggEntry, entry2: KeggEntry, plotting_parameters: PlottingParameters) -> None:
+    if not( (entry1.entry_type == EntryType.COMPOUND and entry2.entry_type == EntryType.MAP)
+        or (entry1.entry_type == EntryType.MAP and entry2.entry_type == EntryType.COMPOUND)):
+        # Only draw maplinks between maps and compounds, not any of the other specified ones
+        return
+
+    map_entry = entry1
+    compound_entry = entry2
+    if map_entry.entry_type == EntryType.COMPOUND:
+        # Switch them around so that names match
+        compound_entry, map_entry = compound_entry, map_entry
+
+    map_min_x = map_entry.x - map_entry.width / 2
+    map_max_x = map_entry.x + map_entry.width / 2
+    map_min_y = map_entry.y - map_entry.height / 2
+    map_max_y = map_entry.y + map_entry.height / 2
+
+    if map_min_x <= compound_entry.x <= map_max_x:
+        # Easy, we can draw a straight vertical line
+        to_y = map_entry.y - map_entry.height / 2 if compound_entry.y < map_entry.y else map_entry.y + map_entry.height / 2
+        patch = PathPatch(Path([(compound_entry.x, compound_entry.y), (compound_entry.x, to_y)]),
+                          lw=plotting_parameters.maplink_linewidth, edgecolor=plotting_parameters.maplink_edgecolor,
+                          linestyle=plotting_parameters.maplink_linestyle, zorder=-5)
+        ax.add_patch(patch)
+        return
+    if map_min_y <= compound_entry.y <= map_max_y:
+        # Also easy, we can draw a straight horizontal line
+        to_x = map_entry.x - map_entry.width / 2 if compound_entry.x < map_entry.x else map_entry.x + map_entry.width / 2
+        patch = PathPatch(Path([(compound_entry.x, compound_entry.y), (to_x, compound_entry.y)]),
+                          lw=plotting_parameters.maplink_linewidth, edgecolor=plotting_parameters.maplink_edgecolor,
+                          linestyle=plotting_parameters.maplink_linestyle, zorder=-5)
+        ax.add_patch(patch)
+        return
+
+    # Define all possible paths (always first attachment to pathway rectangle, then the corner)
+    possible_paths = [[Vector2(map_min_x, map_entry.y), Vector2(compound_entry.x, map_entry.y)],
+                      [Vector2(map_max_x, map_entry.y), Vector2(compound_entry.x, map_entry.y)],
+                      [Vector2(map_entry.x, map_min_y), Vector2(map_entry.x, compound_entry.y)],
+                      [Vector2(map_entry.x, map_max_y), Vector2(map_entry.x, compound_entry.y)]]
+    shortest_distance_squared = float("inf")
+    shortest_distance_path = None
+    for attachment, path_corner in possible_paths:
+        distance_squared = (attachment.x - compound_entry.x) ** 2 + (attachment.y - compound_entry.y) ** 2
+        if distance_squared < shortest_distance_squared:
+            shortest_distance_squared = distance_squared
+            shortest_distance_path = attachment, path_corner
+
+    curve = Curve2(Vector2(compound_entry.x, compound_entry.y))
+    curve.append_cut_corner_to(corner=shortest_distance_path[1], end=shortest_distance_path[0])
+    patch = PathPatch(curve.to_path(), lw=plotting_parameters.maplink_linewidth, edgecolor=plotting_parameters.maplink_edgecolor,
+                      linestyle=plotting_parameters.maplink_linestyle, zorder=-5, fill=False)
+    ax.add_patch(patch)
 
 
-def _draw_maplink(ax: Axes, kegg_map: KeggMap, relation: KeggRelation):
+def _draw_maplinks(ax: Axes, kegg_map: KeggMap, relation: KeggRelation, plotting_parameters: PlottingParameters) -> None:
     # We don't draw map links from/to genes, to avoid clutter - so only towards compounds
     from_entry = kegg_map.entry(relation.from_id)
     to_entry = kegg_map.entry(relation.to_id)
     compound = kegg_map.entry(relation.compound_id)
 
-    if _should_draw_maplink(from_entry.entry_type, to_entry.entry_type):
-        ax.annotate("", xy=(to_entry.x, to_entry.y), xytext=(from_entry.x, from_entry.y), arrowprops=dict(
-            arrowstyle="-|>", color="#ff0000", linestyle="dotted", linewidth=1), zorder=20)
-
-    if relation.from_id != relation.compound_id and _should_draw_maplink(from_entry.entry_type, compound.entry_type):
-        ax.annotate("", xy=(compound.x, compound.y), xytext=(from_entry.x, from_entry.y), arrowprops=dict(
-            arrowstyle="-|>", color="#00ff00", linestyle="dotted", linewidth=1), zorder=20)
-
-    if relation.to_id != relation.compound_id and _should_draw_maplink(to_entry.entry_type, compound.entry_type):
-        ax.annotate("", xy=(to_entry.x, to_entry.y), xytext=(compound.x, compound.y), arrowprops=dict(
-            arrowstyle="-|>", color="#0000ff", linestyle="dotted", linewidth=1), zorder=20)
+    _draw_maplink(ax, from_entry, to_entry, plotting_parameters)
+    _draw_maplink(ax, from_entry, compound, plotting_parameters)
+    _draw_maplink(ax, to_entry, compound, plotting_parameters)
