@@ -7,7 +7,6 @@ from xml.etree import ElementTree
 import numpy
 
 from metaboglobe._util import optimize_for_matching, get_names_without_stereoisomers, optimize_for_display
-from metaboglobe.math.vector_2d import Vector2
 
 
 def _read_accession_number_to_name_mapping() -> dict[str, list[str]]:
@@ -83,9 +82,6 @@ class KeggEntry(NamedTuple):
     width: float
     height: float
     entry_type: EntryType
-
-    def xy(self) -> Vector2:
-        return Vector2(self.x, self.y)
 
 
 class KeggRelation(NamedTuple):

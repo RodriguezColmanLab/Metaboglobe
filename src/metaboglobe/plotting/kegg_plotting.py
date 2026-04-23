@@ -6,8 +6,9 @@ from matplotlib.colors import Colormap, Normalize
 from matplotlib.patches import FancyArrowPatch, ArrowStyle
 
 import metaboglobe
-from metaboglobe.math.curve_2d import Curve2
-from metaboglobe.math.vector_2d import Vector2
+from metaboglobe.plotting._collision_map import CollisionMap, TextWithAnchor
+from metaboglobe.plotting._curve_2d import Curve2
+from metaboglobe.plotting._vector_2d import Vector2
 from metaboglobe._util import MPLColor, optimize_for_display, wrap_text
 from metaboglobe.kegg_pathway import KeggMap, KeggRelation, KeggReaction, RelationType, ReactionType, EntryType, \
     KeggEntry
@@ -103,7 +104,24 @@ def plot_double_arrows(ax: Axes, kegg_map: KeggMap, **kwargs) -> ScalarMappable:
     for reaction in kegg_map.reactions:
         _draw_reaction(ax, kegg_map, reaction, plotting_parameters)
 
+    # Draw compound names
+    _draw_compound_names(ax, kegg_map, plotting_parameters)
+
     return ScalarMappable(Normalize(vmin=plotting_parameters.flux_vmin, vmax=plotting_parameters.flux_vmax), plotting_parameters.flux_cmap)
+
+
+def _draw_compound_names(ax: Axes, kegg_map: KeggMap, plotting_parameters: PlottingParameters):
+    collision_map = CollisionMap(ax)
+    for artist in ax.get_children():
+        collision_map.add_artist(artist)
+
+    texts = list()
+    for entry in kegg_map.entries:
+        if entry.entry_type == EntryType.COMPOUND:
+            if plotting_parameters.plot_entries_without_reactions or kegg_map.has_relations_or_reactions(entry):
+                display_name = metaboglobe.kegg_pathway.get_display_name(entry.name)
+                texts.append(TextWithAnchor(text=display_name, x=entry.x, y=entry.y))
+    collision_map.fit_text(ax, texts, fontsize=6, zorder=10)
 
 
 def _draw_entry(ax: Axes, entry: KeggEntry, plotting_parameters: PlottingParameters):
@@ -117,8 +135,6 @@ def _draw_entry(ax: Axes, entry: KeggEntry, plotting_parameters: PlottingParamet
         ax.add_patch(rect)
         ax.text(entry.x, entry.y, display_name, ha="center", va="center", fontsize=6, zorder=10)
     elif self == EntryType.COMPOUND:
-        display_name = metaboglobe.kegg_pathway.get_display_name(entry.name)
-        ax.text(entry.x, entry.y, display_name, ha="center", va="center", fontsize=6, zorder=10)
         ax.add_patch(matplotlib.patches.Circle((entry.x, entry.y), plotting_parameters.compound_radius,
                                                facecolor=plotting_parameters.compound_nan_color,
                                                edgecolor=plotting_parameters.compound_edgecolor,
@@ -156,10 +172,14 @@ def _snap_to_box(entry: Vector2, box_min: Vector2, box_max: Vector2, *, margin_p
     return entry
 
 
+def _to_vector(entry: KeggEntry) -> Vector2:
+    return Vector2(entry.x, entry.y)
+
+
 def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReaction, plotting_parameters: PlottingParameters):
-    from_entry = kegg_map.entry(reaction.substrate_id).xy()
-    to_entry = kegg_map.entry(reaction.product_id).xy()
-    enzyme_entry = kegg_map.entry(reaction.gene_id).xy()
+    from_entry = _to_vector(kegg_map.entry(reaction.substrate_id))
+    to_entry = _to_vector(kegg_map.entry(reaction.product_id))
+    enzyme_entry = _to_vector(kegg_map.entry(reaction.gene_id))
 
     # We take a box around the three objects in our path (the line connecting the three should follow this box)
     box_min = Vector2.min_x_y(from_entry, enzyme_entry, to_entry)

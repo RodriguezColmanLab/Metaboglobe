@@ -29,6 +29,12 @@ metaboglobe.kegg_plotting.plot_double_arrows(ax, kegg_map)
 plt.show()
 ```
 
+## How the plotting works
+The KEGG map has information on which metabolites, pathway references and enzymes are present on which locations, and how they are connected. What it lacks, is the path of the arrows, or the location of the metabolite labels. To still be able to make a plot, we have created several layout algorithms.
+
+For most reactions, we can draw a U-shaped path, where the metabolites are on both ends of the U, and the enzyme label is at the bottom of the U. The lines of the U are axis-aligned (so along the X or Y axis, no diagonals), and have a rounded corner. The algorithm works by first drawing a bounding box around the two metabolites and the enzyme. If the enzyme is on one of the four sides of the bounding box, then we can draw a U-shaped path. However, if that's not the case, we just draw a straight (non-axis-aligned) line from one metabolite to the enzyme, and then from the enzyme to the other metabolite, with a rounded corner at the metabolite. This is not ideal, but it still allows us to visualize the pathway.
+
+For the metabolite labels, we set up a collision map for the entire plot, blocking the areas where lines or labels are already drawn. Then, we sort all metabolite labels by the text width (largest first). Then, in this order we try to place it in one of the 9 possible locations on or around the metabolite (top, top-right, right, bottom-right, bottom, bottom-left, left, top-left, center). Each location gets a score based on the location itself (right is preferred over bottom-right) and how much it overlaps with blocked areas in the collision map. The location with the best score is chosen, and the collision map is updated to block the area of the label.
 
 ## How to use with a data table
 Let's say you have a pandas DataFrame like this:
