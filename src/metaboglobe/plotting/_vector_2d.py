@@ -42,6 +42,17 @@ class Direction:
     def __repr__(self) -> str:
         return f"Direction({self.angle_degrees:.1f})"
 
+    def middle(self, other: "Direction") -> "Direction":
+        """Returns the direction that is in the middle of this and the other direction. So if this is 0 degrees and the other is 90 degrees, this will return 45 degrees."""
+        # We can't just take the average of the angles, because of the wraparound at 360 degrees. So we need to convert
+        # the angles to vectors, take the average of the vectors, and then convert back to an angle.
+        dx = (self.dx() + other.dx()) / 2
+        dy = (self.dy() + other.dy()) / 2
+        return Direction(angle_radians=math.atan2(dy, dx))
+
+    def to_vector(self, length: float) -> "Vector2":
+        return Vector2(self.dx() * length, self.dy() * length)
+
 
 class Vector2(NamedTuple):
     """Represents a vector in 2D space."""
@@ -109,6 +120,12 @@ class Vector2(NamedTuple):
             return abs(dx)
         else:
             return math.sqrt(dx * dx + dy * dy)
+
+    def __add__(self, other: "Vector2") -> "Vector2":
+        return Vector2(self.x + other.x, self.y + other.y)
+
+    def __sub__(self, other: "Vector2") -> "Vector2":
+        return Vector2(self.x - other.x, self.y - other.y)
 
 
 def point_direction(x1: float, y1: float, x2: float, y2: float) -> Direction:

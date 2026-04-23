@@ -18,7 +18,7 @@ def estimate_width_height(text: str, fontsize: float = 8) -> tuple[float, float]
     """Estimates the width and height of the given text, based on the font size. It's a simple calculation, but does
     know that for example $\\alpha$ and "a" have the same width."""
     lines = text.split("\n")
-    text_height = len(lines) * fontsize * 1.2
+    text_height = len(lines) * fontsize * 1.4
     text_width = max((_estimate_line_width(line, fontsize) for line in lines), default=0)
 
     return text_width, text_height

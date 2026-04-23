@@ -112,9 +112,10 @@ class CollisionMap:
         occupied_count = 0
         for grid_x in range(grid_x_min, grid_x_max + 1):
             for grid_y in range(grid_y_min, grid_y_max + 1):
-                if grid_x < 0 or grid_y < 0 or grid_x > self._grid.shape[1] or grid_y > self._grid.shape[0]:
+                if grid_x < 0 or grid_y < 0 or grid_x >= self._grid.shape[1] or grid_y >= self._grid.shape[0]:
                     occupied_count += 1  # Out of bounds, consider as occupied
-                occupied_count += self._grid[grid_y, grid_x] / 255  # Occupied
+                else:
+                    occupied_count += self._grid[grid_y, grid_x] / 255  # Occupied
                 total_count += 1
         return (total_count - occupied_count) / total_count
 
@@ -180,7 +181,7 @@ class CollisionMap:
                     _TextBbox(x - 10, y, text_width, text_height, "right", "center"): 1.0,
                     _TextBbox(x + 10, y, text_width, text_height, "left", "center"): 0.99,
                     _TextBbox(x, y - 17, text_width, text_height, "center", "top"): 0.99,
-                    _TextBbox(x, y + 17, text_width, text_height, "center", "bottom"): 0.99,
+                    _TextBbox(x, y + 19, text_width, text_height, "center", "bottom"): 0.99,
                     _TextBbox(x - 6, y - 17, text_width, text_height, "right", "top"): 0.98,
                     _TextBbox(x + 6, y + 19, text_width, text_height, "left", "bottom"): 0.98,
                     _TextBbox(x + 6, y - 17, text_width, text_height, "left", "top"): 0.98,

@@ -1,7 +1,18 @@
 import numpy
 from matplotlib.path import Path
 
-from metaboglobe.plotting._vector_2d import Vector2
+from metaboglobe.plotting._vector_2d import Vector2, Direction
+
+
+def _average(direction1: Direction | None, direction2: Direction | None) -> Direction:
+    if direction1 is None:
+        if direction2 is None:
+            raise ValueError("direction1 and direction2 cannot both be None")
+        return direction2
+    if direction2 is None:
+        return direction1
+
+    return direction1.middle(direction2)
 
 
 class Curve2:
@@ -14,6 +25,11 @@ class Curve2:
         self._vertices = [start]
         self._codes = [Path.MOVETO]
 
+    def x_positions(self) -> list[float]:
+        return [vertex.x for vertex in self._vertices]
+
+    def y_positions(self) -> list[float]:
+        return [vertex.y for vertex in self._vertices]
 
     def to_path(self) -> Path:
         """Converts the curve to a Path."""
@@ -92,31 +108,34 @@ class Curve2:
         self._vertices.append(goal)
         self._codes.append(Path.LINETO)
 
-    def shorten(self, length_start: float, length_end: float) -> None:
-        """Removes the given length from the start and end of the curve."""
-        while length_start > 0 and len(self._vertices) >= 2:
-            current_segment_length = self._vertices[0].distance(self._vertices[1])
-            if current_segment_length > length_start:
-                # Remove part of segment
-                new_start = self._vertices[1].towards(self._vertices[0], length_start)
-                self._vertices[0] = new_start
-                length_start = 0
-            else:
-                # Remove entire segment
-                length_start -= current_segment_length
-                del self._vertices[0]
-                del self._codes[0]
-                self._codes[0] = Path.MOVETO
+    def split(self, separation_distance: float = 4) -> tuple["Curve2", "Curve2"]:
+        """For reversible reactions, this duplicates the curve into two, one for the forwards reaction, one for the
+        backwards. Both lines run parallel to each other with some space in between, in opposite direction."""
+        vertices_a = list()
+        vertices_b = list()
 
-        while length_end > 0 and len(self._vertices) >= 2:
-            current_segment_length = self._vertices[0].distance(self._vertices[1])
-            if current_segment_length > length_end:
-                # Remove part of segment
-                new_end = self._vertices[-2].towards(self._vertices[-1], length_end)
-                self._vertices[-1] = new_end
-                length_end = 0
-            else:
-                # Remove entire segment
-                length_end -= current_segment_length
-                del self._vertices[-1]
-                del self._codes[-1]
+        for i, vertex in enumerate(self._vertices):
+            direction_forwards = vertex.direction(self._vertices[i + 1]) if i < len(self._vertices) - 1 else None
+            direction_backwards = vertex.direction(self._vertices[i - 1]).opposite() if i > 0 else None
+            direction = _average(direction_forwards, direction_backwards)
+
+            offset = direction.orthogonal().to_vector(separation_distance / 2)
+            vertices_a.append(vertex + offset)
+            vertices_b.append(vertex - offset)
+
+        vertices_b.reverse()
+
+        path_a = Curve2(vertices_a[0])
+        path_a._vertices = vertices_a
+        path_a._codes = self._codes.copy()
+
+        codes = self._codes.copy()
+        del codes[0]
+        codes.append(Path.MOVETO)
+        codes.reverse()
+
+        path_b = Curve2(vertices_b[0])
+        path_b._vertices = vertices_b
+        path_b._codes = codes
+
+        return path_a, path_b

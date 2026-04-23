@@ -23,8 +23,10 @@ class PlottingParameters:
     flux_cmap: Colormap = matplotlib.colormaps.get_cmap("coolwarm")
     flux_vmin: float = 0
     flux_vmax: float = 1
-    flux_nan_color: MPLColor = "#888888"
     flux_linewidth: float = 2
+    flux_arrowsize: float = 5
+    flux_nan_color: MPLColor = "#888888"  # Used if no flux is available
+    flux_nan_linewidth: float = 1  # Used if no flux is available
 
     compound_nan_color: MPLColor = "#ffffff"
     compound_edgecolor: MPLColor = "#000000"
@@ -39,7 +41,7 @@ class PlottingParameters:
     enzyme_linewidth: float = 0.75
     enzyme_facecolor: MPLColor = "#ffffff"
     enzyme_edgecolor: MPLColor = "#dddddd"
-    enzyme_padding: float = 0.5
+    enzyme_padding: float = 0.25
     enzyme_rounding: bool = True
 
     plot_entries_without_reactions: bool = False
@@ -229,14 +231,26 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReaction, plotting
         else: # Some weird diagonal situation, start with rounded line, then straight line
             curve.append_curve_then_line_to(to_entry)
 
-    #curve.shorten(length_start=plotting_parameters.compound_radius, length_end=plotting_parameters.compound_radius)
-    style_name = "<|-|>" if reaction.reaction_type == ReactionType.REVERSIBLE else "-|>"
-    ax.add_patch(FancyArrowPatch(path=curve.to_path(), arrowstyle=ArrowStyle(style_name, head_length=4, head_width=2)))
-
-
     vmin = plotting_parameters.flux_vmin
     vspread = plotting_parameters.flux_vmax - plotting_parameters.flux_vmin
-    forward_value = (kegg_map.forward_value(reaction) - vmin) / vspread
+
+    forward_value = kegg_map.forward_value(reaction)
+    forward_color = plotting_parameters.flux_nan_color if numpy.isnan(forward_value) else plotting_parameters.flux_cmap((forward_value - vmin) / vspread)
+    forward_width = plotting_parameters.flux_nan_linewidth if numpy.isnan(forward_value) else plotting_parameters.flux_linewidth
+
+    curve_forward, curve_backward = curve.split()
+    ax.add_patch(FancyArrowPatch(path=curve_forward.to_path(), arrowstyle=ArrowStyle("-|>",
+                 head_length=plotting_parameters.flux_arrowsize, head_width=plotting_parameters.flux_arrowsize / 2),
+                 color=forward_color, linewidth=forward_width))
+
+    if reaction.reaction_type == ReactionType.REVERSIBLE:
+        # Also draw backwards arrow
+        backward_value = kegg_map.backward_value(reaction)
+        backward_color = plotting_parameters.flux_nan_color if numpy.isnan(backward_value) else plotting_parameters.flux_cmap((backward_value - vmin) / vspread)
+        backward_width = plotting_parameters.flux_nan_linewidth if numpy.isnan(backward_value) else plotting_parameters.flux_linewidth
+        ax.add_patch(FancyArrowPatch(path=curve_backward.to_path(), arrowstyle=ArrowStyle("-|>",
+                     head_length=plotting_parameters.flux_arrowsize, head_width=plotting_parameters.flux_arrowsize / 2),
+                     color=backward_color, linewidth=backward_width))
 
 def _draw_arrow(ax: Axes, x1: float, y1: float, x2: float, y2: float, cmap: Colormap, value: float, nan_color: MPLColor, linewidth: float, *, arrowstyle: str = "->") -> None:
     if numpy.isnan(value):
@@ -250,6 +264,7 @@ def _draw_arrow(ax: Axes, x1: float, y1: float, x2: float, y2: float, cmap: Colo
 
 
 def _draw_maplink(ax: Axes, entry1: KeggEntry, entry2: KeggEntry, plotting_parameters: PlottingParameters) -> None:
+    """Draws a link between a reference to another pathway, and a compound. Does nothing if other entries are provided."""
     if not( (entry1.entry_type == EntryType.COMPOUND and entry2.entry_type == EntryType.MAP)
         or (entry1.entry_type == EntryType.MAP and entry2.entry_type == EntryType.COMPOUND)):
         # Only draw maplinks between maps and compounds, not any of the other specified ones
@@ -266,38 +281,34 @@ def _draw_maplink(ax: Axes, entry1: KeggEntry, entry2: KeggEntry, plotting_param
     map_min_y = map_entry.y - map_entry.height / 2
     map_max_y = map_entry.y + map_entry.height / 2
 
+    curve = Curve2(Vector2(compound_entry.x, compound_entry.y))
+
     if map_min_x <= compound_entry.x <= map_max_x:
         # Easy, we can draw a straight vertical line
         to_y = map_entry.y - map_entry.height / 2 if compound_entry.y < map_entry.y else map_entry.y + map_entry.height / 2
-        patch = PathPatch(Path([(compound_entry.x, compound_entry.y), (compound_entry.x, to_y)]),
-                          lw=plotting_parameters.maplink_linewidth, edgecolor=plotting_parameters.maplink_edgecolor,
-                          linestyle=plotting_parameters.maplink_linestyle, zorder=-5)
-        ax.add_patch(patch)
-        return
-    if map_min_y <= compound_entry.y <= map_max_y:
+        curve.append_line_to(Vector2(compound_entry.x, to_y))
+    elif map_min_y <= compound_entry.y <= map_max_y:
         # Also easy, we can draw a straight horizontal line
         to_x = map_entry.x - map_entry.width / 2 if compound_entry.x < map_entry.x else map_entry.x + map_entry.width / 2
-        patch = PathPatch(Path([(compound_entry.x, compound_entry.y), (to_x, compound_entry.y)]),
-                          lw=plotting_parameters.maplink_linewidth, edgecolor=plotting_parameters.maplink_edgecolor,
-                          linestyle=plotting_parameters.maplink_linestyle, zorder=-5)
-        ax.add_patch(patch)
-        return
+        curve.append_line_to(Vector2(to_x, compound_entry.y))
+    else:
+        # Define all possible paths (always first attachment to pathway rectangle, then the corner)
+        possible_paths = [[Vector2(map_min_x, map_entry.y), Vector2(compound_entry.x, map_entry.y)],
+                          [Vector2(map_max_x, map_entry.y), Vector2(compound_entry.x, map_entry.y)],
+                          [Vector2(map_entry.x, map_min_y), Vector2(map_entry.x, compound_entry.y)],
+                          [Vector2(map_entry.x, map_max_y), Vector2(map_entry.x, compound_entry.y)]]
 
-    # Define all possible paths (always first attachment to pathway rectangle, then the corner)
-    possible_paths = [[Vector2(map_min_x, map_entry.y), Vector2(compound_entry.x, map_entry.y)],
-                      [Vector2(map_max_x, map_entry.y), Vector2(compound_entry.x, map_entry.y)],
-                      [Vector2(map_entry.x, map_min_y), Vector2(map_entry.x, compound_entry.y)],
-                      [Vector2(map_entry.x, map_max_y), Vector2(map_entry.x, compound_entry.y)]]
-    shortest_distance_squared = float("inf")
-    shortest_distance_path = None
-    for attachment, path_corner in possible_paths:
-        distance_squared = (attachment.x - compound_entry.x) ** 2 + (attachment.y - compound_entry.y) ** 2
-        if distance_squared < shortest_distance_squared:
-            shortest_distance_squared = distance_squared
-            shortest_distance_path = attachment, path_corner
+        # Find the shortest path
+        shortest_distance_squared = float("inf")
+        shortest_distance_path = None
+        for attachment, path_corner in possible_paths:
+            distance_squared = (attachment.x - compound_entry.x) ** 2 + (attachment.y - compound_entry.y) ** 2
+            if distance_squared < shortest_distance_squared:
+                shortest_distance_squared = distance_squared
+                shortest_distance_path = attachment, path_corner
 
-    curve = Curve2(Vector2(compound_entry.x, compound_entry.y))
-    curve.append_cut_corner_to(corner=shortest_distance_path[1], end=shortest_distance_path[0])
+        # Build that path
+        curve.append_cut_corner_to(corner=shortest_distance_path[1], end=shortest_distance_path[0])
     patch = PathPatch(curve.to_path(), lw=plotting_parameters.maplink_linewidth, edgecolor=plotting_parameters.maplink_edgecolor,
                       linestyle=plotting_parameters.maplink_linestyle, zorder=-5, fill=False)
     ax.add_patch(patch)
