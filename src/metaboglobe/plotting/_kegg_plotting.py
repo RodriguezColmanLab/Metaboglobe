@@ -198,7 +198,7 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReaction, plot_sty
     curve_forward, curve_backward = curve.split()
     ax.add_patch(FancyArrowPatch(path=curve_forward.to_path(), arrowstyle=ArrowStyle("-|>",
                  head_length=plot_style.flux_arrowsize, head_width=plot_style.flux_arrowsize / 2),
-                 color=forward_color, linewidth=forward_width))
+                 color=forward_color, linewidth=forward_width, joinstyle=plot_style.flux_joinstyle, capstyle=plot_style.flux_capstyle))
 
     if reaction.reaction_type == ReactionType.REVERSIBLE:
         # Also draw backwards arrow
@@ -207,7 +207,7 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReaction, plot_sty
         backward_width = plot_style.flux_nan_linewidth if numpy.isnan(backward_value) else plot_style.flux_linewidth
         ax.add_patch(FancyArrowPatch(path=curve_backward.to_path(), arrowstyle=ArrowStyle("-|>",
                      head_length=plot_style.flux_arrowsize, head_width=plot_style.flux_arrowsize / 2),
-                     color=backward_color, linewidth=backward_width))
+                     color=backward_color, linewidth=backward_width, joinstyle=plot_style.flux_joinstyle, capstyle=plot_style.flux_capstyle))
 
 def _draw_arrow(ax: Axes, x1: float, y1: float, x2: float, y2: float, cmap: Colormap, value: float, nan_color: MPLColor, linewidth: float, *, arrowstyle: str = "->") -> None:
     if numpy.isnan(value):

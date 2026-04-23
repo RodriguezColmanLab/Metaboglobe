@@ -1,4 +1,6 @@
 """Contains code for working with vectors and curves."""
+from typing import Literal
+
 import matplotlib
 from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
@@ -11,6 +13,8 @@ MPLColor = tuple[float, float, float] \
            | tuple[float, float, float, float] \
            | tuple[tuple[float, float, float] | str, float]
 
+MPLJoinStyle = Literal["miter", "round", "bevel"]
+MPLCapStyle = Literal["butt", "projecting", "round"]
 
 class PlotStyle:
 
@@ -22,6 +26,8 @@ class PlotStyle:
     flux_vmax: float = 1
     flux_linewidth: float = 2
     flux_arrowsize: float = 5
+    flux_joinstyle: MPLJoinStyle = "miter"
+    flux_capstyle: MPLCapStyle = "butt"
     flux_nan_color: MPLColor = "#888888"  # Used if no flux is available
     flux_nan_linewidth: float = 1  # Used if no flux is available
 
