@@ -5,10 +5,7 @@ from typing import Iterable
 _ENANTIOMER_MARKERS = ["alpha-", "beta-", "gamma-", "D-", "L-"]
 
 
-MPLColor = tuple[float, float, float] \
-           | str \
-           | tuple[float, float, float, float] \
-           | tuple[tuple[float, float, float] | str, float]
+
 
 
 

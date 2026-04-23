@@ -19,13 +19,13 @@ kegg_map = metaboglobe.kegg_pathway.load_kegg_map("path/to/glycolysis_map.xml")
 Plotting the map itself can be done as follows:
 
 ```python
-import metaboglobe.kegg_plotting
+import metaboglobe.plotting
 from matplotlib import pyplot as plt
 
 kegg_map = ...  # See above
 
 fig, ax = plt.subplots(figsize=(10, 10))
-metaboglobe.kegg_plotting.plot_double_arrows(ax, kegg_map)
+metaboglobe.plotting.plot_kegg(ax, kegg_map)
 plt.show()
 ```
 
