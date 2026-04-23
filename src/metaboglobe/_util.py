@@ -2,11 +2,7 @@ import itertools
 import math
 from typing import Iterable
 
-_ENANTIOMER_MARKERS = ["alpha-", "beta-", "gamma-", "D-", "L-"]
-
-
-
-
+_ENANTIOMER_MARKERS = ["alpha", "beta", "gamma", "D", "L", "S"]
 
 
 
@@ -51,8 +47,14 @@ def _stereoisomer_search_at_start(haystack: str) -> int:
     """Returns 0 if no enantiomer start (such as "D-") is found. Otherwise, returns the length of the enantiomer start.
     """
     for enantiomer_marker in _ENANTIOMER_MARKERS:
-        if haystack.startswith(enantiomer_marker):
-            return len(enantiomer_marker)
+        if len(haystack) > len(enantiomer_marker) and haystack.startswith(enantiomer_marker):
+            if haystack[len(enantiomer_marker)] == "-":
+                # There needs to be a - after the specifier, otherwise we might just have a word that starts with
+                # "D" for example
+                return len(enantiomer_marker) + 1
+            elif haystack[len(enantiomer_marker)] == ")":
+                # Alternatively, a closing bracket is also fine, such as in (S)-Malate
+                return len(enantiomer_marker)
     return 0
 
 
@@ -80,6 +82,10 @@ def get_names_without_stereoisomers(name: str) -> Iterable[str]:
         name_without_enantiomers = name
         for start, end in sorted(stereroisomer_variant, reverse=True):
             name_without_enantiomers = name_without_enantiomers[:start] + name_without_enantiomers[end:]
+
+        # Replace any brackets that are now empty (like if we removed the S from "(S)-malate")
+        name_without_enantiomers = name_without_enantiomers.replace("()-",  "")
+
         yield name_without_enantiomers
 
 

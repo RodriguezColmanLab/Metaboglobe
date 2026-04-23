@@ -9,6 +9,8 @@ class Test(TestCase):
 
         self.assertEqual(set(get_names_without_stereoisomers("D-fructose")), {"fructose"})
 
+        self.assertEqual(set(get_names_without_stereoisomers("(S)-malate")), {"malate"})
+
         self.assertEqual(set(get_names_without_stereoisomers("alpha-D-glucose-6-phosphate")),
                          {"alpha-glucose-6-phosphate", "D-glucose-6-phosphate", "glucose-6-phosphate"})
 
