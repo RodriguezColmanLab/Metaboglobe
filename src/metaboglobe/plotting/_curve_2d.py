@@ -1,4 +1,5 @@
 import numpy
+from matplotlib.axes import Axes
 from matplotlib.path import Path
 
 from metaboglobe.plotting._vector_2d import Vector2, Direction
@@ -24,12 +25,6 @@ class Curve2:
     def __init__(self, start: Vector2):
         self._vertices = [start]
         self._codes = [Path.MOVETO]
-
-    def x_positions(self) -> list[float]:
-        return [vertex.x for vertex in self._vertices]
-
-    def y_positions(self) -> list[float]:
-        return [vertex.y for vertex in self._vertices]
 
     def to_path(self) -> Path:
         """Converts the curve to a Path."""
@@ -139,3 +134,124 @@ class Curve2:
         path_b._codes = codes
 
         return path_a, path_b
+
+    def shorten_both_sides(self, shorten_distance: float):
+        """Shortens the curve with the given distance on both sides."""
+        self._shorten_front(shorten_distance)
+        self._shorten_back(shorten_distance)
+
+    def _shorten_front(self, shorten_distance: float):
+        while shorten_distance > 0 and len(self._vertices) >= 2:
+            length_first_segment = self._vertices[0].distance(self._vertices[1])
+
+            # Remove this segment entirely
+            if length_first_segment <= shorten_distance:
+                del self._vertices[0]
+                del self._codes[0]
+                self._codes[0] = Path.MOVETO
+
+                shorten_distance -= length_first_segment
+                continue
+
+            # Need to shorten a line
+            if length_first_segment > shorten_distance:
+                self._vertices[0] = self._vertices[1].towards(self._vertices[0], length_first_segment - shorten_distance)
+
+                if len(self._vertices) >= 4 and self._codes[-1] == Path.CURVE3 and self._codes[-2] == Path.CURVE3:
+                    # Need to adapt the curve, otherwise the arrow pointer looks strange
+
+                    # Imagine the situation like this:
+                    # [0] is MOVETO, [1] and [2] are CURVE3, and [3] is LINETO
+                    #
+                    # [1]    _[2]-------------------------------------------------> [3]
+                    #      /
+                    # [0]|
+                    #
+                    # We do a similar operation as for _shorten_back: we move point [1] a lot closer to point [2]
+
+                    distance_1_2 = self._vertices[1].distance(self._vertices[2])
+                    new_1 = self._vertices[2].towards(self._vertices[1], distance_1_2 * 0.33)
+                    self._vertices[1] = new_1
+
+                return  # We're done shortening
+
+            return  # Ran out of options to shorten
+
+    def extend_both_sides(self, extend_distance: float):
+        """Extends the curve with the given distance on both sides, by either extendind the straight line at the end,
+        or by appending a straight line."""
+
+        if len(self._vertices) < 2:
+            return
+
+        # Extend at start
+        if self._codes[1] == Path.LINETO:
+            # Can simply extend this line
+            self._vertices[0] = self._vertices[0].towards(self._vertices[1], -extend_distance)
+        else:
+            # Need to append a line segment
+            self._vertices.insert(0, self._vertices[0].towards(self._vertices[1], -extend_distance))
+            self._codes.insert(1, Path.LINETO)  # Index 0 is always Path.MOVETO, so use index 1
+
+        # Extend at end
+        if self._codes[-1] == Path.LINETO:
+            # Can simply extend this line
+            self._vertices[-1] = self._vertices[-1].towards(self._vertices[-2], -extend_distance)
+        else:
+            # Need to append a line segment
+            self._vertices.append(self._vertices[-1].towards(self._vertices[-2], -extend_distance))
+            self._codes.append(Path.LINETO)
+
+
+    def _shorten_back(self, shorten_distance: float):
+        while shorten_distance > 0 and len(self._vertices) >= 2:
+            length_last_segment = self._vertices[-1].distance(self._vertices[-2])
+
+            # Remove this segment entirely
+            if length_last_segment <= shorten_distance:
+                del self._vertices[-1]
+                del self._codes[-1]
+
+                shorten_distance -= length_last_segment
+                continue
+
+            # Need to shorten a line
+            if length_last_segment > shorten_distance:
+                self._vertices[-1] = self._vertices[-2].towards(self._vertices[-1], length_last_segment - shorten_distance)
+
+                if len(self._vertices) >= 4 and self._codes[-1] == Path.CURVE3 and self._codes[-2] == Path.CURVE3:
+                    # Need to adapt the curve, otherwise the arrow pointer looks strange
+
+                    # Imagine the situation like this:
+                    # [-1] and [-2] are CURVE3, [-3] and [-4] are LINETO
+                    #
+                    # [-2]    _[-3]------------------------------------------------- [-4]
+                    #      /
+                    # [-1]V
+                    #
+                    # Here, the arrow points down at point [-1], because of point [-2]. With the shortened line between
+                    # [-2] and [-1], that looks unfortunate, as the arrow head is longer than the line [-2][-1].
+                    # So we move [-2] closer to [-3]
+
+                    distance_2_3 = self._vertices[-2].distance(self._vertices[-3])
+                    new_2 = self._vertices[-3].towards(self._vertices[-2], distance_2_3 * 0.33)
+                    self._vertices[-2] = new_2
+
+                return  # We're done shortening
+
+            return  # Ran out of options to shorten
+
+    def debug_draw(self, ax: Axes):
+        """Draws the vertex points of the curve, colored by their type (start, line, curve). This is only for debugging
+         purposes."""
+        x_positions = [vertex.x for vertex in self._vertices]
+        y_positions = [vertex.y for vertex in self._vertices]
+
+        colors = list()
+        for code in self._codes:
+            if code == Path.MOVETO or code == Path.LINETO:
+                colors.append(0)
+            else:
+                colors.append(1)
+
+        ax.scatter(x_positions, y_positions, c=colors, s=16, lw=0, cmap="winter")

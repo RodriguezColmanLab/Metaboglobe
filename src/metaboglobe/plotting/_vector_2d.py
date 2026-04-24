@@ -106,6 +106,26 @@ class Vector2(NamedTuple):
             direction = self.direction(goal)
             return Vector2(x=self.x + direction.dx() * distance, y=self.y + direction.dy() * distance)
 
+    def towards_x(self, goal: "Vector2", distance: float) -> "Vector2":
+        """Returns a copy of this vector that is the given distance away from this point, into the direction of the
+        goal, but only in the x direction. Note that if the goal is closer than the given distance, this method
+        will overshoot."""
+        dx = goal.x - self.x
+        if dx == 0:
+            return self
+        else:
+            return Vector2(x=self.x + distance * sign(dx), y=self.y)
+
+    def towards_y(self, goal: "Vector2", distance: float) -> "Vector2":
+        """Returns a copy of this vector that is the given distance away from this point, into the direction of the
+        goal, but only in the y direction. Note that if the goal is closer than the given distance, this method
+        will overshoot."""
+        dy = goal.y - self.y
+        if dy == 0:
+            return self
+        else:
+            return Vector2(x=self.x, y=self.y + distance * sign(dy))
+
     def direction(self, other: "Vector2") -> Direction:
         """Gets the direction from this point to the given point."""
         return point_direction(self.x, self.y, other.x, other.y)
@@ -126,6 +146,19 @@ class Vector2(NamedTuple):
 
     def __sub__(self, other: "Vector2") -> "Vector2":
         return Vector2(self.x - other.x, self.y - other.y)
+
+    def project_onto_line(self, line_start: "Vector2", line_end: "Vector2") -> "Vector2":
+        """Projects this point onto the line defined by the given start and end points. Note that this method
+        does not check whether the projection is actually on the line segment between line_start and line_end,
+        it can be outside of it."""
+
+        line_vector = line_end - line_start
+        self_minus_start = self - line_start
+
+        coeff = (line_vector.x * self_minus_start.x + line_vector.y * self_minus_start.y) / (line_vector.x ** 2 + line_vector.y ** 2)
+        dx = line_start.x + line_vector.x * coeff
+        dy = line_start.y + line_vector.y * coeff
+        return Vector2(x=dx, y=dy)
 
 
 def point_direction(x1: float, y1: float, x2: float, y2: float) -> Direction:

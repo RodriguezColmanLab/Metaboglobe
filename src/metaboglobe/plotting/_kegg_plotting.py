@@ -10,6 +10,7 @@ from metaboglobe._util import wrap_text
 from metaboglobe.kegg_pathway import KeggMap, KeggRelation, KeggReaction, RelationType, ReactionType, EntryType, \
     KeggEntry
 from metaboglobe.plotting import PlotStyle, MPLColor
+from metaboglobe.plotting._box_2d import Box2
 from metaboglobe.plotting._collision_map import CollisionMap, TextWithAnchor
 from metaboglobe.plotting._curve_2d import Curve2
 from metaboglobe.plotting._vector_2d import Vector2
@@ -123,16 +124,16 @@ def _draw_entry(ax: Axes, entry: KeggEntry, plot_style: PlotStyle):
         raise ValueError(f"Unknown entry type: {self}")
 
 
-def _snap_to_box(entry: Vector2, box_min: Vector2, box_max: Vector2, *, margin_px: float = 2) -> Vector2:
+def _snap_to_box(entry: Vector2, box: Box2, *, margin_px: float = 2) -> Vector2:
     """If a point is within margin_px from the edge of the box, it is moved to the edge of the box."""
-    if abs(entry.x - box_min.x) < margin_px:
-        entry = entry.with_x(box_min.x)
-    elif abs(entry.x - box_max.x) < margin_px:
-        entry = entry.with_x(box_max.x)
-    if abs(entry.y - box_min.y) < margin_px:
-        entry = entry.with_y(box_min.y)
-    elif abs(entry.y - box_max.y) < margin_px:
-        entry = entry.with_y(box_max.y)
+    if abs(entry.x - box.min.x) < margin_px:
+        entry = entry.with_x(box.min.x)
+    elif abs(entry.x - box.max.x) < margin_px:
+        entry = entry.with_x(box.max.x)
+    if abs(entry.y - box.min.y) < margin_px:
+        entry = entry.with_y(box.min.y)
+    elif abs(entry.y - box.max.y) < margin_px:
+        entry = entry.with_y(box.max.y)
     return entry
 
 
@@ -141,23 +142,63 @@ def _to_vector(entry: KeggEntry) -> Vector2:
 
 
 def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReaction, plot_style: PlotStyle):
+    """Draws the reaction arrow for a single reaction."""
+
+    curve_forward = _find_reaction_curve(kegg_map, reaction, plot_style)
+
+    vmin = plot_style.flux_vmin
+    vspread = plot_style.flux_vmax - plot_style.flux_vmin
+
+    forward_value = kegg_map.forward_value(reaction)
+    forward_color = plot_style.flux_nan_color if numpy.isnan(forward_value) else plot_style.flux_cmap((forward_value - vmin) / vspread)
+    forward_width = plot_style.flux_nan_linewidth if numpy.isnan(forward_value) else plot_style.flux_linewidth
+    forward_zorder = 0 if numpy.isnan(forward_value) else 1
+
+    if plot_style.plot_double_arrows:
+        # Make space for two arrows, draw which ones are appropriate
+        curve_forward, curve_backward = curve_forward.split()
+        ax.add_patch(FancyArrowPatch(path=curve_forward.to_path(), arrowstyle=ArrowStyle("-|>",
+                     head_length=plot_style.flux_arrowsize, head_width=plot_style.flux_arrowsize / 2),
+                     color=forward_color, linewidth=forward_width, joinstyle=plot_style.flux_joinstyle,
+                     capstyle=plot_style.flux_capstyle, zorder=forward_zorder))
+
+        if reaction.reaction_type == ReactionType.REVERSIBLE:
+            # Also draw backwards arrow
+            backward_value = kegg_map.backward_value(reaction)
+            backward_color = plot_style.flux_nan_color if numpy.isnan(backward_value) else plot_style.flux_cmap((backward_value - vmin) / vspread)
+            backward_width = plot_style.flux_nan_linewidth if numpy.isnan(backward_value) else plot_style.flux_linewidth
+            backward_zorder = 0 if numpy.isnan(backward_value) else 1
+            ax.add_patch(FancyArrowPatch(path=curve_backward.to_path(), arrowstyle=ArrowStyle("-|>",
+                         head_length=plot_style.flux_arrowsize, head_width=plot_style.flux_arrowsize / 2),
+                         color=backward_color, linewidth=backward_width, joinstyle=plot_style.flux_joinstyle,
+                         capstyle=plot_style.flux_capstyle, zorder=backward_zorder))
+    else:
+        # Just draw a single arrow
+        stylename = "<|-|>" if reaction.reaction_type == ReactionType.REVERSIBLE else "-|>"
+        ax.add_patch(FancyArrowPatch(path=curve_forward.to_path(), arrowstyle=ArrowStyle(stylename,
+                                                                                         head_length=plot_style.flux_arrowsize,
+                                                                                         head_width=plot_style.flux_arrowsize / 2),
+                                     color=forward_color, linewidth=forward_width, joinstyle=plot_style.flux_joinstyle,
+                                     capstyle=plot_style.flux_capstyle, zorder=forward_zorder))
+
+
+def _find_reaction_curve(kegg_map: KeggMap, reaction: KeggReaction, plot_style: PlotStyle) -> Curve2:
+    # Build an initial box
     from_entry = _to_vector(kegg_map.entry(reaction.substrate_id))
     to_entry = _to_vector(kegg_map.entry(reaction.product_id))
     enzyme_entry = _to_vector(kegg_map.entry(reaction.gene_id))
-
-    # We take a box around the three objects in our path (the line connecting the three should follow this box)
-    box_min = Vector2.min_x_y(from_entry, enzyme_entry, to_entry)
-    box_max = Vector2.max_x_y(from_entry, enzyme_entry, to_entry)
+    box = Box2.enclosing(from_entry, to_entry, enzyme_entry)
 
     # If any of the points are very close to the box, just move them there
     # (KEGG isn't very precise with aligning things)
-    from_entry = _snap_to_box(from_entry, box_min, box_max)
-    to_entry = _snap_to_box(to_entry, box_min, box_max)
-    enzyme_entry = _snap_to_box(enzyme_entry, box_min, box_max)
+    from_entry = _snap_to_box(from_entry, box)
+    to_entry = _snap_to_box(to_entry, box)
+    enzyme_entry = _snap_to_box(enzyme_entry, box)
+    box = Box2.enclosing(from_entry, to_entry, enzyme_entry)
 
     # Check if the enzyme is on the side of a box (necessary for determining the corners in our path)
-    enzyme_on_min_or_max_x = enzyme_entry.x == box_min.x or enzyme_entry.x == box_max.x
-    enzyme_on_min_or_max_y = enzyme_entry.y == box_min.y or enzyme_entry.y == box_max.y
+    enzyme_on_min_or_max_x = enzyme_entry.x == box.min.x or enzyme_entry.x == box.max.x
+    enzyme_on_min_or_max_y = enzyme_entry.y == box.min.y or enzyme_entry.y == box.max.y
 
     # Start drawing the path
     curve = Curve2(from_entry)
@@ -172,7 +213,7 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReaction, plot_sty
             curve.append_rounded_corner_to(corner=enzyme_entry.with_y(from_entry.y), end=enzyme_entry)
         elif enzyme_on_min_or_max_y:  # So enzyme on top or bottom side of box
             curve.append_rounded_corner_to(corner=enzyme_entry.with_x(from_entry.x), end=enzyme_entry)
-        else: # Some weird diagonal situation, start with straight line, then rounded line
+        else:  # Some weird diagonal situation, start with straight line, then rounded line
             curve.append_line_then_curve_to(enzyme_entry)
 
     # Make the path to the product
@@ -185,39 +226,16 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReaction, plot_sty
             curve.append_rounded_corner_to(corner=to_entry.with_x(enzyme_entry.x), end=to_entry)
         elif enzyme_on_min_or_max_y:  # So enzyme on top or bottom side of box
             curve.append_rounded_corner_to(corner=to_entry.with_y(enzyme_entry.y), end=to_entry)
-        else: # Some weird diagonal situation, start with rounded line, then straight line
+        else:  # Some weird diagonal situation, start with rounded line, then straight line
             curve.append_curve_then_line_to(to_entry)
 
-    vmin = plot_style.flux_vmin
-    vspread = plot_style.flux_vmax - plot_style.flux_vmin
+    # Make space for the compound itself, some margin, and the arrow head
+    curve.shorten_both_sides(plot_style.compound_radius * 1.4 + plot_style.flux_arrowsize * 1.2)
 
-    forward_value = kegg_map.forward_value(reaction)
-    forward_color = plot_style.flux_nan_color if numpy.isnan(forward_value) else plot_style.flux_cmap((forward_value - vmin) / vspread)
-    forward_width = plot_style.flux_nan_linewidth if numpy.isnan(forward_value) else plot_style.flux_linewidth
+    # Arrowhead is part of the line, so append a straight line segment to make space
+    curve.extend_both_sides(plot_style.flux_arrowsize * 1.2)
 
-    curve_forward, curve_backward = curve.split()
-    ax.add_patch(FancyArrowPatch(path=curve_forward.to_path(), arrowstyle=ArrowStyle("-|>",
-                 head_length=plot_style.flux_arrowsize, head_width=plot_style.flux_arrowsize / 2),
-                 color=forward_color, linewidth=forward_width, joinstyle=plot_style.flux_joinstyle, capstyle=plot_style.flux_capstyle))
-
-    if reaction.reaction_type == ReactionType.REVERSIBLE:
-        # Also draw backwards arrow
-        backward_value = kegg_map.backward_value(reaction)
-        backward_color = plot_style.flux_nan_color if numpy.isnan(backward_value) else plot_style.flux_cmap((backward_value - vmin) / vspread)
-        backward_width = plot_style.flux_nan_linewidth if numpy.isnan(backward_value) else plot_style.flux_linewidth
-        ax.add_patch(FancyArrowPatch(path=curve_backward.to_path(), arrowstyle=ArrowStyle("-|>",
-                     head_length=plot_style.flux_arrowsize, head_width=plot_style.flux_arrowsize / 2),
-                     color=backward_color, linewidth=backward_width, joinstyle=plot_style.flux_joinstyle, capstyle=plot_style.flux_capstyle))
-
-def _draw_arrow(ax: Axes, x1: float, y1: float, x2: float, y2: float, cmap: Colormap, value: float, nan_color: MPLColor, linewidth: float, *, arrowstyle: str = "->") -> None:
-    if numpy.isnan(value):
-        linewidth /= 2
-        color = nan_color
-    else:
-        color = cmap(value)
-
-    ax.annotate("", xy=(x2, y2), xytext=(x1, y1), arrowprops=dict(
-        arrowstyle=arrowstyle, color=color, linewidth=linewidth))
+    return curve
 
 
 def _draw_maplink(ax: Axes, entry1: KeggEntry, entry2: KeggEntry, plot_style: PlotStyle) -> None:

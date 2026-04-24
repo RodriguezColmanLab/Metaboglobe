@@ -20,6 +20,7 @@ class PlotStyle:
 
     facecolor: MPLColor = "#eeeeee"
     hide_ticks_and_spines: bool = True
+    plot_double_arrows: bool = True
 
     flux_cmap: Colormap = matplotlib.colormaps.get_cmap("coolwarm")
     flux_vmin: float = 0
