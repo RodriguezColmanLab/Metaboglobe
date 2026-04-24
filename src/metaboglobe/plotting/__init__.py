@@ -51,15 +51,22 @@ class PlotStyle:
     plot_entries_without_reactions: bool = False
 
     def __init__(self, **kwargs):
+        """Initializes the plot style with the given parameters. Raises ValueError if any parameter is unknown."""
+        self.update(**kwargs)
+
+    def update(self, **kwargs):
+        """Updates the plot style with the given parameters. Raises ValueError if any parameter is unknown."""
         for key, value in kwargs.items():
-            # We just check whether the attribute exists, we don't type check (would be nice to have though)
             if not hasattr(self, key):
                 raise ValueError(f"Invalid plotting parameter: {key}")
 
             setattr(self, key, value)
 
 
-def plot_kegg(ax: Axes, kegg_map: KeggMap, plot_style: PlotStyle = PlotStyle()) -> ScalarMappable:
+def plot_kegg(ax: Axes, kegg_map: KeggMap, plot_style: PlotStyle | None = None, **kwargs) -> ScalarMappable:
     """Plots the given KEGG map on the given axes, and returns a ScalarMappable that can be used for the colorbar (if any)."""
     from . import _kegg_plotting
+    if plot_style is None:
+        plot_style = PlotStyle()
+    plot_style.update(**kwargs)
     return _kegg_plotting.plot_kegg(ax, kegg_map, plot_style=plot_style)
