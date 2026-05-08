@@ -7,6 +7,11 @@ Strangely enough, there are only a handful of software packages to visualize met
 
 In addition, Metaboglobe also has built-in support for visualizing Compass results on KEGG pathway maps. Compass is a software package to predict metabolic fluxes from single-cell RNA-seq data [Wagner et al.]. With Metaboglobe, you can easily visualize these predicted fluxes on the KEGG pathway maps, which can help you interpret the results and generate hypotheses about metabolic changes in your single-cell transcriptomic data.
 
+## Installation
+Make sure you have Python installed. It might be useful to install Metaboglobe into a separate environment (Venv/Conda/etc.). Then, install with PIP:
+
+    pip install git+https://github.com/RodriguezColmanLab/Metaboglobe.git@main
+
 ## How to plot a KEGG pathway map with MetaboGlobe
 First, download a KEGG pathway map in KGML format from the KEGG website. For example, the Glycolysis pathway map for humans can be downloaded from https://rest.kegg.jp/get/hsa00010/kgml . Then, you can load it using the `load_kegg_map` function:
 
