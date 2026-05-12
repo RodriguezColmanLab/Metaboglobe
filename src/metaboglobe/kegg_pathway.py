@@ -287,7 +287,7 @@ def load_kegg_map(path: str) -> KeggMap:
     for entry in root.findall("entry"):
         entry_id = int(entry.attrib["id"])
         graphics = entry.find("graphics")
-        if graphics is None:
+        if graphics is None or "name" not in graphics.attrib:
             continue
         name = graphics.attrib["name"]
         entry_type = EntryType[entry.attrib["type"].upper()]
