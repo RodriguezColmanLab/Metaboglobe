@@ -1,7 +1,7 @@
 from unittest import TestCase
 
-from metaboglobe.kegg_pathway import KeggMap, KeggEntry, EntryType, ReactionType, KeggReactionWithReversion, \
-    KeggRelation, KeggReaction
+from metaboglobe.kegg_pathway import KeggMap, KeggEntry, EntryType, ReactionType, KeggReactionIdWithReversion, \
+    KeggRelation, KeggReactionArrow
 
 
 def _kegg_compound(name: str, id: int) -> KeggEntry:
@@ -37,8 +37,8 @@ class TestKeggMap(TestCase):
 
         # Check that the reaction that we find is now reversible
         found_reaction = kegg_map.match_reaction(["atp"], ["o2"])
-        self.assertEqual(found_reaction.reaction, KeggReaction(2, 3, 5, ReactionType.TWO_IRREVERSIBLE))
+        self.assertEqual(found_reaction.reaction_id, KeggReactionArrow(2, 3, 5, ReactionType.TWO_IRREVERSIBLE))
 
         # Also check the other way around
         found_reaction = kegg_map.match_reaction(["o2"], ["atp"])
-        self.assertEqual(found_reaction.reaction, KeggReaction(2, 3, 5, ReactionType.TWO_IRREVERSIBLE))
+        self.assertEqual(found_reaction.reaction_id, KeggReactionArrow(2, 3, 5, ReactionType.TWO_IRREVERSIBLE))

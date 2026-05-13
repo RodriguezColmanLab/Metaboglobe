@@ -8,8 +8,8 @@ from matplotlib.patches import FancyArrowPatch, ArrowStyle, PathPatch
 
 import metaboglobe
 from metaboglobe._util import wrap_text
-from metaboglobe.kegg_pathway import KeggMap, KeggRelation, KeggReaction, RelationType, ReactionType, EntryType, \
-    KeggEntry
+from metaboglobe.kegg_pathway import KeggMap, KeggReactionArrow, ReactionType, KeggCompoundInMap, \
+    KeggReactionEnzymeInMap, KeggOtherPathwayRelationInMap, KeggPathwayReferenceInMap
 from metaboglobe.plotting import PlotStyle
 from metaboglobe.math.box_2d import Box2
 from metaboglobe.plotting._collision_map import CollisionMap, TextWithAnchor
@@ -33,6 +33,7 @@ def plot_kegg(ax: Axes, kegg_map: KeggMap, plot_style: PlotStyle) -> ScalarMappa
     """
 
     # Set up plot
+    ax.set_title(kegg_map.title)
     ax.set_facecolor(plot_style.facecolor)
     _adjust_limits(ax, kegg_map)
     if plot_style.hide_ticks_and_spines:
@@ -44,15 +45,20 @@ def plot_kegg(ax: Axes, kegg_map: KeggMap, plot_style: PlotStyle) -> ScalarMappa
         ax.spines["left"].set_visible(False)
 
     # Draw entries
-    for entry in kegg_map.entries:
-        if plot_style.plot_entries_without_reactions or kegg_map.has_relations_or_reactions(entry):
-            _draw_entry(ax, entry, plot_style)
+    for compound in kegg_map.compounds:
+        if plot_style.plot_entries_without_reactions or kegg_map.has_relations_or_reactions(compound.compound_id):
+            _draw_compound(ax, compound, plot_style)
+    for pathway_reference in kegg_map.other_pathways:
+        if plot_style.plot_entries_without_reactions or kegg_map.has_relations_or_reactions(pathway_reference.pathway_id):
+            _draw_pathway_reference(ax, pathway_reference, plot_style)
+    for enzyme in kegg_map.reaction_enzymes:
+        if plot_style.plot_entries_without_reactions or kegg_map.has_relations_or_reactions(enzyme.reaction_id):
+            _draw_enzyme(ax, enzyme, plot_style)
 
     # Draw relations and reactions
-    for relation in kegg_map.relations:
-        if relation.relation_type == RelationType.MAPLINK:
-            _draw_maplinks(ax, kegg_map, relation, plot_style)
-    for reaction in kegg_map.reactions:
+    for relation in kegg_map.other_pathway_relations:
+        _draw_maplink(ax, kegg_map, relation, plot_style)
+    for reaction in kegg_map.reaction_arrows:
         _draw_reaction(ax, kegg_map, reaction, plot_style)
 
     # Draw compound names
@@ -67,47 +73,42 @@ def _draw_compound_names(ax: Axes, kegg_map: KeggMap, plot_style: PlotStyle):
         collision_map.add_artist(artist)
 
     texts = list()
-    for entry in kegg_map.entries:
-        if entry.entry_type == EntryType.COMPOUND:
-            if plot_style.plot_entries_without_reactions or kegg_map.has_relations_or_reactions(entry):
-                display_name = metaboglobe.kegg_pathway.get_display_name(entry.name)
-                texts.append(TextWithAnchor(text=display_name, x=entry.x, y=entry.y))
+    for entry in kegg_map.compounds:
+        if plot_style.plot_entries_without_reactions or kegg_map.has_relations_or_reactions(entry.compound_id):
+            display_name = metaboglobe.kegg_pathway.get_display_name(entry.compound_id)
+            texts.append(TextWithAnchor(text=display_name, x=entry.x, y=entry.y))
     collision_map.fit_text(ax, texts, fontsize=6, zorder=10)
 
 
-def _draw_entry(ax: Axes, entry: KeggEntry, plot_style: PlotStyle):
-    self = entry.entry_type
-    if self == EntryType.TITLE:
-        ax.set_title(entry.name)
-    elif self == EntryType.MAP:
-        display_name = wrap_text(entry.name, int(entry.width // 6))  # Wrap text to fit within the entry box, assuming an average character width of 6 pixels
-        rect = matplotlib.patches.Rectangle((entry.x - entry.width / 2, entry.y - entry.height / 2),
-                                            entry.width, entry.height, fill=True, color="#c1bcb8")
-        ax.add_patch(rect)
-        ax.text(entry.x, entry.y, display_name, ha="center", va="center", fontsize=6, zorder=10)
-    elif self == EntryType.COMPOUND:
-        ax.add_patch(matplotlib.patches.Circle((entry.x, entry.y), plot_style.compound_radius,
-                                               facecolor=plot_style.compound_nan_color,
-                                               edgecolor=plot_style.compound_edgecolor,
-                                               linewidth=plot_style.compound_linewidth))
-        return
-    elif self == EntryType.ORTHOLOG:
-        return  # Not interested in orthologs, they just clutter the figure
-    elif self == EntryType.GENE:  # Genes
-        if "," in entry.name:
-            display_name = entry.name.split(",")[0] + ", ..."
-        else:
-            display_name = entry.name
-        bbox = {"facecolor": plot_style.enzyme_facecolor, "edgecolor": plot_style.enzyme_edgecolor,
-                "linewidth": plot_style.enzyme_linewidth}
-        if plot_style.enzyme_rounding:
-            bbox["boxstyle"] = f"round,pad={plot_style.enzyme_padding}"
-        else:
-            bbox["pad"] = plot_style.enzyme_padding
-        ax.text(entry.x, entry.y, display_name, ha="center", va="center", fontsize=6, zorder=10,
-                color=plot_style.enzyme_textcolor, bbox=bbox)
+def _draw_compound(ax: Axes, entry: KeggCompoundInMap, plot_style: PlotStyle):
+    ax.add_patch(matplotlib.patches.Circle((entry.x, entry.y), plot_style.compound_radius,
+                                           facecolor=plot_style.compound_nan_color,
+                                           edgecolor=plot_style.compound_edgecolor,
+                                           linewidth=plot_style.compound_linewidth))
+
+
+def _draw_pathway_reference(ax: Axes, entry: KeggPathwayReferenceInMap, plot_style: PlotStyle):
+    display_name = wrap_text(entry.name,
+                             int(entry.width // 6))  # Wrap text to fit within the entry box, assuming an average character width of 6 pixels
+    rect = matplotlib.patches.Rectangle((entry.x - entry.width / 2, entry.y - entry.height / 2),
+                                        entry.width, entry.height, fill=True, color="#c1bcb8")
+    ax.add_patch(rect)
+    ax.text(entry.x, entry.y, display_name, ha="center", va="center", fontsize=6, zorder=10)
+
+
+def _draw_enzyme(ax: Axes, entry, plot_style: PlotStyle):
+    if "," in entry.name:
+        display_name = entry.name.split(",")[0] + ", ..."
     else:
-        raise ValueError(f"Unknown entry type: {self}")
+        display_name = entry.name
+    bbox = {"facecolor": plot_style.enzyme_facecolor, "edgecolor": plot_style.enzyme_edgecolor,
+            "linewidth": plot_style.enzyme_linewidth}
+    if plot_style.enzyme_rounding:
+        bbox["boxstyle"] = f"round,pad={plot_style.enzyme_padding}"
+    else:
+        bbox["pad"] = plot_style.enzyme_padding
+    ax.text(entry.x, entry.y, display_name, ha="center", va="center", fontsize=6, zorder=10,
+            color=plot_style.enzyme_textcolor, bbox=bbox)
 
 
 def _snap_to_box(entry: Vector2, box: Box2, *, margin_px: float = 2) -> Vector2:
@@ -123,11 +124,11 @@ def _snap_to_box(entry: Vector2, box: Box2, *, margin_px: float = 2) -> Vector2:
     return entry
 
 
-def _to_vector(entry: KeggEntry) -> Vector2:
+def _to_vector(entry: KeggCompoundInMap | KeggReactionEnzymeInMap) -> Vector2:
     return Vector2(entry.x, entry.y)
 
 
-def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReaction, plot_style: PlotStyle):
+def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReactionArrow, plot_style: PlotStyle):
     """Draws the reaction arrow for a single reaction."""
 
     curve_forward = _find_reaction_curve(kegg_map, reaction, plot_style)
@@ -135,7 +136,7 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReaction, plot_sty
     vmin = plot_style.flux_vmin
     vspread = plot_style.flux_vmax - plot_style.flux_vmin
 
-    forward_value = kegg_map.forward_value(reaction)
+    forward_value = kegg_map.forward_value(reaction.reaction_id)
     forward_color = plot_style.flux_nan_color if numpy.isnan(forward_value) else plot_style.flux_cmap((forward_value - vmin) / vspread)
     forward_arrowwidth = plot_style.flux_nan_arrowwidth if numpy.isnan(forward_value) else plot_style.flux_arrowwidth
     forward_edgewidth = plot_style.flux_nan_edgewidth if numpy.isnan(forward_value) else plot_style.flux_edgewidth
@@ -155,7 +156,7 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReaction, plot_sty
 
         if reaction.reaction_type == ReactionType.REVERSIBLE:
             # Also draw backwards arrow
-            backward_value = kegg_map.backward_value(reaction)
+            backward_value = kegg_map.backward_value(reaction.reaction_id)
             backward_color = plot_style.flux_nan_color if numpy.isnan(backward_value) else plot_style.flux_cmap((backward_value - vmin) / vspread)
             backward_arrowwidth = plot_style.flux_nan_arrowwidth if numpy.isnan(backward_value) else plot_style.flux_arrowwidth
             backward_edgewidth = plot_style.flux_nan_edgewidth if numpy.isnan(backward_value) else plot_style.flux_edgewidth
@@ -179,11 +180,11 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReaction, plot_sty
                      path_effects=[patheffects.withStroke(linewidth=forward_arrowwidth + forward_edgewidth * 2, foreground=forward_edgecolor)]))
 
 
-def _find_reaction_curve(kegg_map: KeggMap, reaction: KeggReaction, plot_style: PlotStyle) -> Curve2:
+def _find_reaction_curve(kegg_map: KeggMap, reaction: KeggReactionArrow, plot_style: PlotStyle) -> Curve2:
     # Build an initial box
-    from_entry = _to_vector(kegg_map.entry(reaction.substrate_id))
-    to_entry = _to_vector(kegg_map.entry(reaction.product_id))
-    enzyme_entry = _to_vector(kegg_map.entry(reaction.gene_id))
+    from_entry = _to_vector(kegg_map.compound(reaction.substrate_id))
+    to_entry = _to_vector(kegg_map.compound(reaction.product_id))
+    enzyme_entry = _to_vector(reaction.reaction_in_map)
     box = Box2.enclosing(from_entry, to_entry, enzyme_entry)
 
     # If any of the points are very close to the box, just move them there
@@ -235,18 +236,10 @@ def _find_reaction_curve(kegg_map: KeggMap, reaction: KeggReaction, plot_style: 
     return curve
 
 
-def _draw_maplink(ax: Axes, entry1: KeggEntry, entry2: KeggEntry, plot_style: PlotStyle) -> None:
-    """Draws a link between a reference to another pathway, and a compound. Does nothing if other entries are provided."""
-    if not( (entry1.entry_type == EntryType.COMPOUND and entry2.entry_type == EntryType.MAP)
-        or (entry1.entry_type == EntryType.MAP and entry2.entry_type == EntryType.COMPOUND)):
-        # Only draw maplinks between maps and compounds, not any of the other specified ones
-        return
-
-    map_entry = entry1
-    compound_entry = entry2
-    if map_entry.entry_type == EntryType.COMPOUND:
-        # Switch them around so that names match
-        compound_entry, map_entry = compound_entry, map_entry
+def _draw_maplink(ax: Axes, kegg_map: KeggMap, relation: KeggOtherPathwayRelationInMap, plot_style: PlotStyle) -> None:
+    """Draws a link between a reference to another pathway, and a compound."""
+    compound_entry = kegg_map.compound(relation.compound_id)
+    map_entry = kegg_map.other_pathway(relation.pathway_id)
 
     map_min_x = map_entry.x - map_entry.width / 2
     map_max_x = map_entry.x + map_entry.width / 2
@@ -284,14 +277,3 @@ def _draw_maplink(ax: Axes, entry1: KeggEntry, entry2: KeggEntry, plot_style: Pl
     patch = PathPatch(curve.to_path(), lw=plot_style.maplink_linewidth, edgecolor=plot_style.maplink_edgecolor,
                       linestyle=plot_style.maplink_linestyle, zorder=-5, fill=False)
     ax.add_patch(patch)
-
-
-def _draw_maplinks(ax: Axes, kegg_map: KeggMap, relation: KeggRelation, plot_style: PlotStyle) -> None:
-    # We don't draw map links from/to genes, to avoid clutter - so only towards compounds
-    from_entry = kegg_map.entry(relation.from_id)
-    to_entry = kegg_map.entry(relation.to_id)
-    compound = kegg_map.entry(relation.compound_id)
-
-    _draw_maplink(ax, from_entry, to_entry, plot_style)
-    _draw_maplink(ax, from_entry, compound, plot_style)
-    _draw_maplink(ax, to_entry, compound, plot_style)
