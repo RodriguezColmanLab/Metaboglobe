@@ -50,6 +50,11 @@ class CompassModel:
         """Gets the reaction with the given ID. For example, for "MAR04363_pos". Returns None if not found."""
         return self._reactions_by_id.get(id, None)
 
+    def update(self, other: "CompassModel"):
+        """Adds all the reactions and species from the other model to this model. If there are reactions or species
+        with the same ID, they will be overwritten."""
+        self._species_names_by_id.update(other._species_names_by_id)
+        self._reactions_by_id.update(other._reactions_by_id)
 
 
 class CompassComparison(ABC):
@@ -125,7 +130,33 @@ def setup_comparison_to_single_cells(adata: AnnData, model: CompassModel, *, gro
 
 
 def load_compass_model(folder: str) -> CompassModel:
-    """Reads the model JSON file in the given folder, and stores all the species and reactions in a CompassModel object."""
+    """Reads the model JSON file in the given folder, and stores all the species and reactions in a CompassModel object.
+
+    The folder can either be a Compass model folder (containing a model.json.gz file and a reactions.tsv file), or
+    a folder containing subfolders, each containing a Compass model folder. The latter is useful if you ran Compass
+    on several subsystems using Module-Compass.
+    """
+
+    # Case where we have a single model
+    if os.path.exists(os.path.join(folder, "model.json.gz")):
+        return _load_single_compass_model(folder)
+
+    # Case where each subfolder is a model
+    model = None
+    for subfolder_name in os.listdir(folder):
+        subfolder_path = os.path.join(folder, subfolder_name)
+        if os.path.exists(os.path.join(subfolder_path, "model.json.gz")):
+            subfolder_model = _load_single_compass_model(subfolder_path)
+            if model is None:
+                model = subfolder_model
+            else:
+                model.update(subfolder_model)
+    if model is None:
+        raise ValueError(f"No Compass model found in folder '{folder}' or its subfolders.")
+    return model
+
+
+def _load_single_compass_model(folder: str) -> CompassModel:
     file_path = os.path.join(folder, "model.json.gz")
     with gzip.open(file_path, "rt") as handle:
         model_json = handle.read()
@@ -161,7 +192,22 @@ def add_compass_output(adata: AnnData, compass_folder: str, *, obsm_key: str = _
     values in the column named `microclustering_mapping` ("microclustering" by default) are expected to be the
     names of the microclusters."""
 
-    reaction_penalties = pandas.read_csv(os.path.join(compass_folder, "reactions.tsv"), delimiter="\t", index_col=0)
+    if os.path.exists(os.path.join(compass_folder, "reactions.tsv")):
+        reaction_penalties = pandas.read_csv(os.path.join(compass_folder, "reactions.tsv"), delimiter="\t", index_col=0)
+    else:
+        # Search in subfolders
+        reaction_penalties = None
+        for subfolder_name in os.listdir(compass_folder):
+            subfolder_path = os.path.join(compass_folder, subfolder_name)
+            if os.path.exists(os.path.join(subfolder_path, "reactions.tsv")):
+                # Found a subfolder
+                reaction_penalties_of_subfolder = pandas.read_csv(os.path.join(subfolder_path, "reactions.tsv"), delimiter="\t", index_col=0)
+                if reaction_penalties is None:
+                    reaction_penalties = reaction_penalties_of_subfolder
+                else:
+                    reaction_penalties = pandas.concat([reaction_penalties, reaction_penalties_of_subfolder], axis=0)
+        if reaction_penalties is None:
+            raise ValueError(f"No reactions.tsv file found in folder '{compass_folder}' or its subfolders.")
 
     if microclustering_mapping is not None:
         # Undo the microclustering

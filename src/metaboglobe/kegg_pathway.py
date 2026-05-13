@@ -7,6 +7,8 @@ from xml.etree import ElementTree
 import numpy
 
 from metaboglobe._util import optimize_for_matching, get_names_without_stereoisomers, optimize_for_display
+from metaboglobe.math.box_2d import Box2
+from metaboglobe.math.vector_2d import Vector2
 
 
 def _read_accession_number_to_name_mapping() -> dict[str, list[str]]:
@@ -146,6 +148,38 @@ class KeggMap:
         self._reactions_forward_values = dict()
         self._reactions_backward_values = dict()
         self._reaction_by_compound_names = defaultdict(list)
+
+    def box(self) -> Box2:
+        """Calculates the axis limits for plotting this pathway."""
+        xmax = 0
+        ymax = 0
+        for entry in self.entries:
+            xmax = max(entry.x, xmax)
+            ymax = max(entry.y, ymax)
+
+        if xmax == 0 or ymax == 0:
+            return Box2(Vector2(0, 0), Vector2(1, 1)) # Invalid limits
+
+        # Give some extra space
+        xsize = xmax
+        ysize = ymax
+        xmax += xsize / 10
+        ymax += ysize / 10
+
+        return Box2(Vector2(0, 0), Vector2(xmax, ymax))
+
+    def figsize(self) -> tuple[float, float]:
+        """Calculates how big the figure size would be (in inches), assuming we only plot this pathway."""
+        box = self.box()
+
+        return box.max.x / 100, box.max.y / 100
+
+    def title(self) -> str:
+        """Gets the title of this pathway."""
+        for entry in self._entries_by_id.values():
+            if entry.entry_type == EntryType.TITLE:
+                return entry.name
+        return "Unnamed"
 
     def add_entry(self, entry: KeggEntry):
         """Adds an entry to the plot. Entries are compounds, orthologs, etc."""

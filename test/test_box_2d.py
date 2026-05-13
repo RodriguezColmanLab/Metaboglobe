@@ -1,7 +1,7 @@
 from unittest import TestCase
 
-from metaboglobe.plotting._box_2d import Box2
-from metaboglobe.plotting._vector_2d import Vector2
+from metaboglobe.math._box_2d import Box2
+from metaboglobe.math._vector_2d import Vector2
 
 
 class Test(TestCase):

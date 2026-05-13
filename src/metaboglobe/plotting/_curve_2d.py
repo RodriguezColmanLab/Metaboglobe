@@ -2,7 +2,7 @@ import numpy
 from matplotlib.axes import Axes
 from matplotlib.path import Path
 
-from metaboglobe.plotting._vector_2d import Vector2, Direction
+from metaboglobe.math.vector_2d import Vector2, Direction
 
 
 def _average(direction1: Direction | None, direction2: Direction | None) -> Direction:

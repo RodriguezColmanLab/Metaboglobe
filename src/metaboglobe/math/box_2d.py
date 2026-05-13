@@ -1,4 +1,4 @@
-from metaboglobe.plotting._vector_2d import Vector2
+from metaboglobe.math.vector_2d import Vector2
 
 
 class Box2:

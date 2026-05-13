@@ -1,43 +1,29 @@
 import matplotlib
 import numpy
+from matplotlib import patheffects
 from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
-from matplotlib.colors import Colormap, Normalize
+from matplotlib.colors import Normalize
 from matplotlib.patches import FancyArrowPatch, ArrowStyle, PathPatch
 
 import metaboglobe
 from metaboglobe._util import wrap_text
 from metaboglobe.kegg_pathway import KeggMap, KeggRelation, KeggReaction, RelationType, ReactionType, EntryType, \
     KeggEntry
-from metaboglobe.plotting import PlotStyle, MPLColor
-from metaboglobe.plotting._box_2d import Box2
+from metaboglobe.plotting import PlotStyle
+from metaboglobe.math.box_2d import Box2
 from metaboglobe.plotting._collision_map import CollisionMap, TextWithAnchor
 from metaboglobe.plotting._curve_2d import Curve2
-from metaboglobe.plotting._vector_2d import Vector2
+from metaboglobe.math.vector_2d import Vector2
 
 
 def _adjust_limits(ax: Axes, kegg_map: KeggMap):
     """Adjusts the xlim and ylim of the plot to fit the map."""
-
-    # Calculate necessary space for plot
-    xmax = 0
-    ymax = 0
-    for entry in kegg_map.entries:
-        xmax = max(entry.x, xmax)
-        ymax = max(entry.y, ymax)
-
-    if xmax == 0 or ymax == 0:
-        return  # Invalid limits
-
-    # Give some extra space
-    xsize = xmax
-    ysize = ymax
-    xmax += xsize / 10
-    ymax += ysize / 10
+    box = kegg_map.box()
 
     # Adjust the limits
-    ax.set_xlim(0, xmax)
-    ax.set_ylim(ymax, 0)
+    ax.set_xlim(box.min.x, box.max.x)
+    ax.set_ylim(box.max.y, box.min.y)  # Reversed, so that low y is on top
     ax.set_aspect("equal")
 
 
@@ -151,35 +137,46 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReaction, plot_sty
 
     forward_value = kegg_map.forward_value(reaction)
     forward_color = plot_style.flux_nan_color if numpy.isnan(forward_value) else plot_style.flux_cmap((forward_value - vmin) / vspread)
-    forward_width = plot_style.flux_nan_linewidth if numpy.isnan(forward_value) else plot_style.flux_linewidth
+    forward_arrowwidth = plot_style.flux_nan_arrowwidth if numpy.isnan(forward_value) else plot_style.flux_arrowwidth
+    forward_edgewidth = plot_style.flux_nan_edgewidth if numpy.isnan(forward_value) else plot_style.flux_edgewidth
+    forward_edgecolor = plot_style.flux_edgecolor if numpy.isnan(forward_value) else plot_style.flux_edgecolor
     forward_zorder = 0 if numpy.isnan(forward_value) else 1
 
     if plot_style.plot_double_arrows:
+        arrow_separation = plot_style.flux_nan_separation if numpy.isnan(forward_value) else plot_style.flux_separation
+
         # Make space for two arrows, draw which ones are appropriate
-        curve_forward, curve_backward = curve_forward.split()
+        curve_forward, curve_backward = curve_forward.split(separation_distance=arrow_separation)
         ax.add_patch(FancyArrowPatch(path=curve_forward.to_path(), arrowstyle=ArrowStyle("-|>",
                      head_length=plot_style.flux_arrowsize, head_width=plot_style.flux_arrowsize / 2),
-                     color=forward_color, linewidth=forward_width, joinstyle=plot_style.flux_joinstyle,
-                     capstyle=plot_style.flux_capstyle, zorder=forward_zorder))
+                     color=forward_color, linewidth=forward_arrowwidth, joinstyle=plot_style.flux_joinstyle,
+                     capstyle=plot_style.flux_capstyle, zorder=forward_zorder,
+                     path_effects=[patheffects.withStroke(linewidth=forward_arrowwidth + forward_edgewidth * 2, foreground=forward_edgecolor)]))
 
         if reaction.reaction_type == ReactionType.REVERSIBLE:
             # Also draw backwards arrow
             backward_value = kegg_map.backward_value(reaction)
             backward_color = plot_style.flux_nan_color if numpy.isnan(backward_value) else plot_style.flux_cmap((backward_value - vmin) / vspread)
-            backward_width = plot_style.flux_nan_linewidth if numpy.isnan(backward_value) else plot_style.flux_linewidth
+            backward_arrowwidth = plot_style.flux_nan_arrowwidth if numpy.isnan(backward_value) else plot_style.flux_arrowwidth
+            backward_edgewidth = plot_style.flux_nan_edgewidth if numpy.isnan(backward_value) else plot_style.flux_edgewidth
+            backward_edgecolor = plot_style.flux_nan_edgecolor if numpy.isnan(backward_value) else plot_style.flux_edgecolor
             backward_zorder = 0 if numpy.isnan(backward_value) else 1
             ax.add_patch(FancyArrowPatch(path=curve_backward.to_path(), arrowstyle=ArrowStyle("-|>",
-                         head_length=plot_style.flux_arrowsize, head_width=plot_style.flux_arrowsize / 2),
-                         color=backward_color, linewidth=backward_width, joinstyle=plot_style.flux_joinstyle,
-                         capstyle=plot_style.flux_capstyle, zorder=backward_zorder))
+                         head_length=plot_style.flux_arrowsize,
+                         head_width=plot_style.flux_arrowsize / 2),
+                         color=backward_color, linewidth=backward_arrowwidth,
+                         joinstyle=plot_style.flux_joinstyle,
+                         capstyle=plot_style.flux_capstyle, zorder=backward_zorder,
+                         path_effects=[patheffects.withStroke(linewidth=backward_arrowwidth + backward_edgewidth * 2, foreground=backward_edgecolor)]))
+
     else:
         # Just draw a single arrow
         stylename = "<|-|>" if reaction.reaction_type == ReactionType.REVERSIBLE else "-|>"
         ax.add_patch(FancyArrowPatch(path=curve_forward.to_path(), arrowstyle=ArrowStyle(stylename,
-                                                                                         head_length=plot_style.flux_arrowsize,
-                                                                                         head_width=plot_style.flux_arrowsize / 2),
-                                     color=forward_color, linewidth=forward_width, joinstyle=plot_style.flux_joinstyle,
-                                     capstyle=plot_style.flux_capstyle, zorder=forward_zorder))
+                     head_length=plot_style.flux_arrowsize, head_width=plot_style.flux_arrowsize / 2),
+                     color=forward_color, linewidth=forward_arrowwidth, joinstyle=plot_style.flux_joinstyle,
+                     capstyle=plot_style.flux_capstyle, zorder=forward_zorder,
+                     path_effects=[patheffects.withStroke(linewidth=forward_arrowwidth + forward_edgewidth * 2, foreground=forward_edgecolor)]))
 
 
 def _find_reaction_curve(kegg_map: KeggMap, reaction: KeggReaction, plot_style: PlotStyle) -> Curve2:

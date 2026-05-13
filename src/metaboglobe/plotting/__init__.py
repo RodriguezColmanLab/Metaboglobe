@@ -5,6 +5,8 @@ import matplotlib
 from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Colormap
+from matplotlib.figure import Figure
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ..kegg_pathway import KeggMap
 
@@ -23,14 +25,21 @@ class PlotStyle:
     plot_double_arrows: bool = True
 
     flux_cmap: Colormap = matplotlib.colormaps.get_cmap("coolwarm")
+    flux_label: str | None = None
     flux_vmin: float = 0
     flux_vmax: float = 1
-    flux_linewidth: float = 2
+    flux_arrowwidth: float = 1.5
+    flux_edgecolor: MPLColor = "#555555"
     flux_arrowsize: float = 5
+    flux_edgewidth: float = 0.5  # Width of the edge around the arrow, set to 0 to disable
     flux_joinstyle: MPLJoinStyle = "miter"
-    flux_capstyle: MPLCapStyle = "butt"
+    flux_capstyle: MPLCapStyle = "round"
+    flux_separation: float = 6  # Used if `self.plot_double_arrows` is True, to separate the two arrows of a double arrow
     flux_nan_color: MPLColor = "#888888"  # Used if no flux is available
-    flux_nan_linewidth: float = 1  # Used if no flux is available
+    flux_nan_arrowwidth: float = 1  # Used if no flux is available
+    flux_nan_separation: float = 4  # Used instead of `self.flux_separation` if no flux is available
+    flux_nan_edgecolor: MPLColor = "#000000"  # Used instead of `self.flux_edgecolor` if no flux is available
+    flux_nan_edgewidth: float = 0  # Used instead of `self.flux_edgewidth` if no flux is available
 
     compound_nan_color: MPLColor = "#ffffff"
     compound_edgecolor: MPLColor = "#000000"
@@ -70,3 +79,22 @@ def plot_kegg(ax: Axes, kegg_map: KeggMap, plot_style: PlotStyle | None = None, 
         plot_style = PlotStyle()
     plot_style.update(**kwargs)
     return _kegg_plotting.plot_kegg(ax, kegg_map, plot_style=plot_style)
+
+
+def plot_kegg_figure(kegg_map: KeggMap, plot_style: PlotStyle | None = None, **kwargs) -> Figure:
+    """Plots the given KEGG map on the given axes, and returns a Figure object. To have a colorbar, pass a `flux_label`
+    in `plot_style` or as a keyword argument."""
+    if plot_style is None:
+        plot_style = PlotStyle()
+    plot_style.update(**kwargs)
+
+    figsize = kegg_map.figsize()
+    figure = Figure(figsize=figsize)
+    ax = figure.gca()
+
+    mappable = plot_kegg(ax, kegg_map, plot_style=plot_style)
+    if plot_style.flux_label is not None:
+        figure.colorbar(mappable, ax=ax, orientation="vertical", label=plot_style.flux_label, shrink=0.2)
+
+    figure.tight_layout()
+    return figure
