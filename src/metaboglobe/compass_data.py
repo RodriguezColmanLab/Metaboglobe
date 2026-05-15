@@ -226,9 +226,13 @@ def add_compass_output(adata: AnnData, compass_folder: str, *, obsm_key: str = _
                 if reaction_penalties is None:
                     reaction_penalties = reaction_penalties_of_subfolder
                 else:
-                    reaction_penalties = pandas.concat([reaction_penalties, reaction_penalties_of_subfolder], axis=0)
+                    # Simply concatenate without verifying integrity. We resolve the duplicates later
+                    reaction_penalties = pandas.concat([reaction_penalties, reaction_penalties_of_subfolder], axis=0, verify_integrity=False)
         if reaction_penalties is None:
             raise ValueError(f"No reactions.tsv file found in folder '{compass_folder}' or its subfolders.")
+
+        # Remove duplicates (reactions can be part of multiple subsystems)
+        reaction_penalties = reaction_penalties[~reaction_penalties.index.duplicated(keep="first")]
 
     if microclustering_mapping is not None:
         # Undo the microclustering
