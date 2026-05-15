@@ -30,6 +30,9 @@ class KeggReactionId:
         """Just returns the reaction ID, for example "rn:R02235"."""
         return self._reaction_id
 
+    def __repr__(self) -> str:
+        return f"<{self._reaction_id}>"
+
     def __eq__(self, other: object) -> bool:
         return isinstance(other, KeggReactionId) and self._reaction_id == other.reaction_id
 
@@ -69,6 +72,9 @@ class KeggCompoundId:
         """Just returns the compound ID, for example "cpd:C00504"."""
         return self._compound_id
 
+    def __repr__(self) -> str:
+        return f"<{self._compound_id}>"
+
     def __eq__(self, other: object) -> bool:
         return isinstance(other, KeggCompoundId) and self._compound_id == other.compound_id
 
@@ -107,6 +113,9 @@ class KeggPathwayId:
     def __str__(self) -> str:
         """Just returns the pathway ID, for example "path:mmu00250"."""
         return self._pathway_id
+
+    def __repr__(self) -> str:
+        return f"<{self._pathway_id}>"
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, KeggPathwayId) and self._pathway_id == other.pathway_id

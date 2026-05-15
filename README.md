@@ -84,10 +84,10 @@ First, load in the scRNAseq data into an AnnData object, and make sure you have 
 import metaboglobe.compass_data
 
 adata = ...  # load in your AnnData object
-metaboglobe.compass_data.add_compass_output(adata, "path/to/compass output/CENTRAL_CARBON_ENERGY", obsm_key="CENTRAL_CARBON_ENERGY")
+metaboglobe.compass_data.add_compass_output(adata, "path/to/compass output/")
 ```
 
-This folder is expected to have a `reactions.tsv` file and a `model.json.gz` file in it. By default, the reaction fluxes will be stored under `adata.obsm[folder_name]`, with `folder_name = CENTRAL_CARBON_ENERGY` in this example. You can specify a different key using the `obsm_key` argument.
+This folder is expected to have a `reactions.tsv` file and a `model.json.gz` file in it. Alternatively, it can contain subfolders with those files, which you will get if you run Module-Compass. By default, the reaction fluxes will be stored under `adata.obsm["compass"]`. You can specify a different key using the `obsm_key` argument.
 
 Second, load in the KEGG pathway map you want to plot (see above), and apply the coloring to the map:
 
@@ -97,12 +97,14 @@ import metaboglobe.compass_data
 kegg_map = ...  # load in the KEGG map for glycolysis
 adata = ...  # load in your AnnData object with Compass results
 
-model = metaboglobe.compass_data.load_compass_model("path/to/compass output/CENTRAL_CARBON_ENERGY")
+model = metaboglobe.compass_data.load_compass_model("path/to/compass output")
 comparison = metaboglobe.compass_data.setup_comparison_to_single_cells(adata, model, groupby="condition",
-                                                                       obsm_key="CENTRAL_CARBON_ENERGY",
                                                                        min_percentile=20, max_percentile=80)
 comparison.insert_values_in_map(kegg_map, group="condition_a")
 
 # Plot the kegg_map as shown above. It should now be colored according to the Compass fluxes for "condition_a".
 ```
+
+## Metabolites
+[gem_reactions.csv](src/metaboglobe/data/gem_reactions.tsv) was downloaded from https://github.com/SysBioChalmers/Human-GEM/blob/635f533152dc5f7290ce04d12700eaa882273c3e/model/reactions.tsv .  (Robinson JL, et al. An atlas of human metabolism. Sci. Signal. 13, eaaz1482 (2020). [doi:10.1126/scisignal.aaz1482](https://doi.org/10.1126/scisignal.aaz1482) )
 

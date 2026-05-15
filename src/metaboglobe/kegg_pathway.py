@@ -72,6 +72,7 @@ class ReactionType(Enum):
 
 class KeggCompoundInMap(NamedTuple):
     compound_id: KeggCompoundId
+    entry_in_map_id: int
     name: str
     x: float
     y: float
@@ -79,6 +80,7 @@ class KeggCompoundInMap(NamedTuple):
 
 class KeggPathwayReferenceInMap(NamedTuple):
     pathway_id: KeggPathwayId
+    entry_in_map_id: int
     name: str
     x: float
     y: float
@@ -89,6 +91,7 @@ class KeggPathwayReferenceInMap(NamedTuple):
 class KeggReactionEnzymeInMap(NamedTuple):
     """Represents an enzyme in the KEGG pathway map. Does not state what the substrates and products are."""
     reaction_id: KeggReactionId
+    entry_in_map_id: int
     name: str
     x: float
     y: float
@@ -98,16 +101,32 @@ class KeggReactionEnzymeInMap(NamedTuple):
 
 class KeggOtherPathwayRelationInMap(NamedTuple):
     """Represents a relation in the KEGG pathway map."""
-    compound_id: KeggCompoundId
-    pathway_id: KeggPathwayId
+    compound: KeggCompoundInMap
+    pathway: KeggPathwayReferenceInMap
+
+    @property
+    def compound_id(self) -> KeggCompoundId:
+        return self.compound.compound_id
+
+    @property
+    def pathway_id(self) -> KeggPathwayId:
+        return self.pathway.pathway_id
 
 
 class KeggReactionArrow(NamedTuple):
     """Represents a chemical reaction in the KEGG pathway map. Should contain all the information to draw the arrow."""
     reaction_in_map: KeggReactionEnzymeInMap
-    substrate_id: KeggCompoundId
-    product_id: KeggCompoundId
+    substrate: KeggCompoundInMap
+    product: KeggCompoundInMap
     reaction_type: ReactionType
+
+    @property
+    def substrate_id(self) -> KeggCompoundId:
+        return self.substrate.compound_id
+
+    @property
+    def product_id(self) -> KeggCompoundId:
+        return self.product.compound_id
 
     @property
     def reaction_id(self) -> KeggReactionId:
@@ -138,15 +157,21 @@ def _check_for_match(matching_names: list[str], kegg_identifier: KeggCompoundId)
 
 
 class KeggMap:
+    """A map of a single KEGG pathway.
+
+    The data strutures are a bit convoluted; this is because metabolites, enzymes, pathways, etc. can appear multiple
+    times in the map. So we can't simply index everything by the KEGG id, but have to keep track if local ids within
+    the pathway.
+    """
 
     _title: str
 
-    _reaction_enzymes: dict[KeggReactionId, KeggReactionEnzymeInMap]
-    _compounds: dict[KeggCompoundId, KeggCompoundInMap]
-    _pathway_references: dict[KeggPathwayId, KeggPathwayReferenceInMap]
+    _reaction_enzymes: list[KeggReactionEnzymeInMap]
+    _compounds: list[KeggCompoundInMap]
+    _pathway_references: list[KeggPathwayReferenceInMap]
 
     _relations_to_other_pathways: list[KeggOtherPathwayRelationInMap]
-    _reaction_arrows: dict[KeggReactionId, KeggReactionArrow]
+    _reaction_arrows: list[KeggReactionArrow]
     _reactions_forward_values: dict[KeggReactionId, float]
     _reactions_backward_values: dict[KeggReactionId, float]
     _reaction_by_compound_names: dict[str, list[KeggReactionArrow]]
@@ -154,12 +179,12 @@ class KeggMap:
     def __init__(self):
         self._title = "Unnamed"
 
-        self._reaction_enzymes = dict()
-        self._compounds = dict()
-        self._pathway_references = dict()
+        self._reaction_enzymes = list()
+        self._compounds = list()
+        self._pathway_references = list()
         self._relations_to_other_pathways = list()
 
-        self._reaction_arrows = dict()
+        self._reaction_arrows = list()
         self._reactions_forward_values = dict()
         self._reactions_backward_values = dict()
         self._reaction_by_compound_names = defaultdict(list)
@@ -168,10 +193,10 @@ class KeggMap:
         """Calculates the axis limits for plotting this pathway."""
         xmax = 0
         ymax = 0
-        for entry in self._compounds.values():
+        for entry in self._compounds:
             xmax = max(entry.x, xmax)
             ymax = max(entry.y, ymax)
-        for entry in self._pathway_references.values():
+        for entry in self._pathway_references:
             xmax = max(entry.x + entry.width, xmax)
             ymax = max(entry.y + entry.height, ymax)
 
@@ -203,37 +228,38 @@ class KeggMap:
             raise ValueError("Title cannot be None")
         self._title = title
 
-    def add_compound(self, compound_id: KeggCompoundId, x: float, y: float):
+    def add_compound(self, compound_id: KeggCompoundId, entry_in_map_id: int, x: float, y: float) -> KeggCompoundInMap:
         """Adds a compound to the map at the given location."""
-        self._compounds[compound_id] = KeggCompoundInMap(compound_id, get_display_name(compound_id), x, y)
+        compound = KeggCompoundInMap(compound_id, entry_in_map_id, get_display_name(compound_id), x, y)
+        self._compounds.append(compound)
+        return compound
 
-    def add_reaction_enzyme(self, reaction_id: KeggReactionId, name: str, x: float, y: float, width: float, height: float):
+    def add_reaction_enzyme(self, reaction_id: KeggReactionId, entry_in_map_id: int, name: str, x: float, y: float, width: float, height: float):
         """Adds a reaction enzyme to the map at the given location."""
-        self._reaction_enzymes[reaction_id] = KeggReactionEnzymeInMap(reaction_id, name, x, y, width, height)
+        enzyme = KeggReactionEnzymeInMap(reaction_id, entry_in_map_id, name, x, y, width, height)
+        self._reaction_enzymes.append(enzyme)
+        return enzyme
 
-    def add_pathway_reference(self, pathway_id: KeggPathwayId, name: str, x: float, y: float, width: float, height: float):
+    def add_pathway_reference(self, pathway_id: KeggPathwayId, entry_in_map_id: int, name: str, x: float, y: float, width: float, height: float):
         """Adds a pathway reference to the map at the given location."""
-        self._pathway_references[pathway_id] = KeggPathwayReferenceInMap(pathway_id, name, x, y, width, height)
+        pathway = KeggPathwayReferenceInMap(pathway_id, entry_in_map_id, name, x, y, width, height)
+        self._pathway_references.append(pathway)
+        return pathway
 
-    def add_reaction_arrow(self, reaction_id: KeggReactionId, substrate: KeggCompoundId, product: KeggCompoundId, reaction_type: ReactionType):
+    def add_reaction_arrow(self, enzyme: KeggReactionEnzymeInMap, substrate: KeggCompoundInMap, product: KeggCompoundInMap, reaction_type: ReactionType):
         """Add the reaction arrow, connecting a substrate, enzyme and product."""
-        reaction_enzyme = self._reaction_enzymes[reaction_id]
 
-        reaction = KeggReactionArrow(reaction_enzyme, substrate, product, reaction_type)
-        self._reaction_arrows[reaction_id] = reaction
+        reaction = KeggReactionArrow(enzyme, substrate, product, reaction_type)
+        self._reaction_arrows.append(reaction)
 
         # Populate compound name mappings
-        for kegg_compound_id in [substrate, product]:
+        for kegg_compound_id in [substrate.compound_id, product.compound_id]:
             names = _ACCESSION_NUMBER_TO_NAMES.get(kegg_compound_id, [])
             for name in names:
                 self._reaction_by_compound_names[optimize_for_matching(name)].append(reaction)
 
-    def add_pathway_relation(self, compound: KeggCompoundId, pathway: KeggPathwayId):
+    def add_pathway_relation(self, compound: KeggCompoundInMap, pathway: KeggPathwayReferenceInMap):
         """Relations connect entries, identified using the entry IDs."""
-        if compound not in self._compounds:
-            raise ValueError(f"Compound ID {compound} does not exist")
-        if pathway not in self._pathway_references:
-            raise ValueError(f"Pathway ID {pathway} does not exist")
         self._relations_to_other_pathways.append(KeggOtherPathwayRelationInMap(compound, pathway))
 
     def match_reaction(self, substrate_names: list[str], product_names: list[str]) -> KeggReactionIdWithReversion | None:
@@ -265,24 +291,23 @@ class KeggMap:
         return None
 
     def _reaction_id_to_str(self, reaction_id: KeggReactionId) -> str:
-        reaction = self._reaction_arrows[reaction_id]
-        return (reaction_id.reaction_id + ": "
-                + (_ACCESSION_NUMBER_TO_NAMES[self._compounds[reaction.substrate_id].compound_id][0] + " -> "
-                + _ACCESSION_NUMBER_TO_NAMES[self._compounds[reaction.product_id].compound_id][0]))
+        for reaction_arrow in self._reaction_arrows:
+            if reaction_arrow.reaction_id == reaction_id:
+                return (reaction_id.reaction_id + ": "
+                        + (_ACCESSION_NUMBER_TO_NAMES[reaction_arrow.substrate_id][0] + " -> "
+                        + _ACCESSION_NUMBER_TO_NAMES[reaction_arrow.product_id][0]))
+        else:
+            return reaction_id.reaction_id + ": (reaction not in map)"
 
     @property
     def compounds(self) -> Collection[KeggCompoundInMap]:
         """Gets all compounds in the map."""
-        return self._compounds.values()
-
-    def compound(self, compound_id: KeggCompoundId) -> KeggCompoundInMap:
-        """Gets the compound with the given id from the map. Raises ValueError if the compound is not in the map."""
-        return self._compounds[compound_id]
+        return self._compounds
 
     @property
     def other_pathways(self) -> Collection[KeggPathwayReferenceInMap]:
         """Gets all pathway references in the map."""
-        return self._pathway_references.values()
+        return self._pathway_references
 
     def other_pathway(self, pathway_id: KeggPathwayId) -> KeggPathwayReferenceInMap:
         """Gets the pathway reference with the given id from the map. Raises ValueError if the pathway is not in the map."""
@@ -291,12 +316,12 @@ class KeggMap:
     @property
     def reaction_enzymes(self) -> Collection[KeggReactionEnzymeInMap]:
         """Gets all compounds in the map."""
-        return self._reaction_enzymes.values()
+        return self._reaction_enzymes
 
     @property
     def reaction_arrows(self) -> Collection[KeggReactionArrow]:
         """Gets all available reaction."""
-        return self._reaction_arrows.values()
+        return self._reaction_arrows
 
     @property
     def other_pathway_relations(self) -> Collection[KeggOtherPathwayRelationInMap]:
@@ -337,7 +362,10 @@ class KeggMap:
                     return True
             return False
         elif isinstance(entry, KeggReactionId):
-            return entry in self._reaction_arrows
+            for reaction in self.reaction_arrows:
+                if reaction.reaction_id == entry:
+                    return True
+            return False
         elif isinstance(entry, KeggPathwayId):
             for relation in self._relations_to_other_pathways:
                 if relation.pathway_id == entry:
@@ -380,22 +408,22 @@ def load_kegg_map(path: str) -> KeggMap:
 
         if entry_type == "compound":
             compound_id = KeggCompoundId(entry.attrib["name"])
-            kegg_map.add_compound(compound_id, x, y)
-            compound_entries[entry_id] = compound_id
+            compound_in_map = kegg_map.add_compound(compound_id, entry_id, x, y)
+            compound_entries[entry_id] = compound_in_map
         elif entry_type == "gene":
             if "reaction" not in entry.attrib:
                 continue
             reaction_id = KeggReactionId(entry.attrib["reaction"])
-            kegg_map.add_reaction_enzyme(reaction_id, display_name, x, y, width, height)
-            gene_entries[entry_id] = reaction_id
+            reaction_enzyme = kegg_map.add_reaction_enzyme(reaction_id, entry_id, display_name, x, y, width, height)
+            gene_entries[entry_id] = reaction_enzyme
         elif entry_type == "map":
             pathway_id = KeggPathwayId(entry.attrib["name"])
-            kegg_map.add_pathway_reference(pathway_id, display_name, x, y, width, height)
-            map_entries[entry_id] = pathway_id
+            pathway = kegg_map.add_pathway_reference(pathway_id, entry_id, display_name, x, y, width, height)
+            map_entries[entry_id] = pathway
 
     # Read reactions
     for reaction in root.findall("reaction"):
-        kegg_reaction_id = gene_entries[int(reaction.attrib["id"])]
+        kegg_reaction_enzyme = gene_entries[int(reaction.attrib["id"])]
         substrates = [compound_entries[int(s.attrib['id'])] for s in reaction.findall("substrate")]
         products = [compound_entries[int(p.attrib['id'])] for p in reaction.findall("product")]
         reversible = reaction.attrib.get("type", "reversible") == "reversible"
@@ -403,7 +431,7 @@ def load_kegg_map(path: str) -> KeggMap:
 
         for substrate in substrates:
             for product in products:
-                kegg_map.add_reaction_arrow(kegg_reaction_id, substrate, product, reaction_type)
+                kegg_map.add_reaction_arrow(kegg_reaction_enzyme, substrate, product, reaction_type)
 
     # Read relations
     for relation in root.findall("relation"):

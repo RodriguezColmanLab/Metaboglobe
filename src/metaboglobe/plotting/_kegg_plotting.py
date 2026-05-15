@@ -57,7 +57,7 @@ def plot_kegg(ax: Axes, kegg_map: KeggMap, plot_style: PlotStyle) -> ScalarMappa
 
     # Draw relations and reactions
     for relation in kegg_map.other_pathway_relations:
-        _draw_maplink(ax, kegg_map, relation, plot_style)
+        _draw_maplink(ax, relation, plot_style)
     for reaction in kegg_map.reaction_arrows:
         _draw_reaction(ax, kegg_map, reaction, plot_style)
 
@@ -131,7 +131,7 @@ def _to_vector(entry: KeggCompoundInMap | KeggReactionEnzymeInMap) -> Vector2:
 def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReactionArrow, plot_style: PlotStyle):
     """Draws the reaction arrow for a single reaction."""
 
-    curve_forward = _find_reaction_curve(kegg_map, reaction, plot_style)
+    curve_forward = _find_reaction_curve(reaction, plot_style)
 
     vmin = plot_style.flux_vmin
     vspread = plot_style.flux_vmax - plot_style.flux_vmin
@@ -180,10 +180,10 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReactionArrow, plo
                      path_effects=[patheffects.withStroke(linewidth=forward_arrowwidth + forward_edgewidth * 2, foreground=forward_edgecolor)]))
 
 
-def _find_reaction_curve(kegg_map: KeggMap, reaction: KeggReactionArrow, plot_style: PlotStyle) -> Curve2:
+def _find_reaction_curve(reaction: KeggReactionArrow, plot_style: PlotStyle) -> Curve2:
     # Build an initial box
-    from_entry = _to_vector(kegg_map.compound(reaction.substrate_id))
-    to_entry = _to_vector(kegg_map.compound(reaction.product_id))
+    from_entry = _to_vector(reaction.substrate)
+    to_entry = _to_vector(reaction.product)
     enzyme_entry = _to_vector(reaction.reaction_in_map)
     box = Box2.enclosing(from_entry, to_entry, enzyme_entry)
 
@@ -236,10 +236,10 @@ def _find_reaction_curve(kegg_map: KeggMap, reaction: KeggReactionArrow, plot_st
     return curve
 
 
-def _draw_maplink(ax: Axes, kegg_map: KeggMap, relation: KeggOtherPathwayRelationInMap, plot_style: PlotStyle) -> None:
+def _draw_maplink(ax: Axes, relation: KeggOtherPathwayRelationInMap, plot_style: PlotStyle) -> None:
     """Draws a link between a reference to another pathway, and a compound."""
-    compound_entry = kegg_map.compound(relation.compound_id)
-    map_entry = kegg_map.other_pathway(relation.pathway_id)
+    compound_entry = relation.compound
+    map_entry = relation.pathway
 
     map_min_x = map_entry.x - map_entry.width / 2
     map_max_x = map_entry.x + map_entry.width / 2
