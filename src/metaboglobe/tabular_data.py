@@ -89,9 +89,6 @@ def insert_values_in_map(kegg_map: KeggMap, data_frame: pandas.DataFrame, *, rea
             if reversed:
                 product_names, substrate_names = substrate_names, product_names
             matched_reactions = list(kegg_map.match_reactions(substrate_names, product_names))
-            if len(matched_reactions) == 0 and "L-glutamate(1-)" in reaction and "4-Aminobutanoate" in reaction:
-                print(f"No match for {reaction}")
-                matched_reactions = list(kegg_map.match_reactions(substrate_names, product_names))
             for matched_reaction in matched_reactions:
                 kegg_map.set_reaction_score(matched_reaction, value)
 
