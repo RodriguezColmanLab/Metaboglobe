@@ -2,6 +2,7 @@
 from typing import Literal
 
 import matplotlib
+from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Colormap
@@ -81,15 +82,14 @@ def plot_kegg(ax: Axes, kegg_map: KeggMap, plot_style: PlotStyle | None = None, 
     return _kegg_plotting.plot_kegg(ax, kegg_map, plot_style=plot_style)
 
 
-def plot_kegg_figure(kegg_map: KeggMap, plot_style: PlotStyle | None = None, **kwargs) -> Figure:
+def plot_kegg_figure(kegg_map: KeggMap, figure: Figure | None = None, plot_style: PlotStyle | None = None, **kwargs) -> Figure:
     """Plots the given KEGG map on the given axes, and returns a Figure object. To have a colorbar, pass a `flux_label`
     in `plot_style` or as a keyword argument."""
     if plot_style is None:
         plot_style = PlotStyle()
     plot_style.update(**kwargs)
 
-    figsize = kegg_map.figsize()
-    figure = Figure(figsize=figsize)
+    figure = plt.figure(figsize=kegg_map.figsize()) if figure is None else figure
     ax = figure.gca()
 
     mappable = plot_kegg(ax, kegg_map, plot_style=plot_style)

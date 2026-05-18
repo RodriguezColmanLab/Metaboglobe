@@ -1,7 +1,7 @@
 from collections import defaultdict
 from enum import Enum, auto
 from importlib.resources import files
-from typing import NamedTuple, Collection
+from typing import NamedTuple, Collection, Iterable
 from xml.etree import ElementTree
 
 import numpy
@@ -262,7 +262,7 @@ class KeggMap:
         """Relations connect entries, identified using the entry IDs."""
         self._relations_to_other_pathways.append(KeggOtherPathwayRelationInMap(compound, pathway))
 
-    def match_reaction(self, substrate_names: list[str], product_names: list[str]) -> KeggReactionIdWithReversion | None:
+    def match_reactions(self, substrate_names: list[str], product_names: list[str]) -> Iterable[KeggReactionIdWithReversion]:
         """Given a list of substrate names and product names, searches for a reaction in this pathway that matches
         one of the substrate names and one of the product names. The given names are expected to be names like
         "D-Fructose-6P". The method uses all the known names of Kegg to match. If a name is provided without
@@ -281,13 +281,13 @@ class KeggMap:
                 if (_check_for_match([substrate_name], relation_substrate_kegg_accession)
                         and _check_for_match(product_names, relation_product_kegg_accession)):
                     # Found a match!
-                    return KeggReactionIdWithReversion(reaction.reaction_in_map.reaction_id, reversed=False)
+                    yield KeggReactionIdWithReversion(reaction.reaction_in_map.reaction_id, reversed=False)
 
-                if (reaction.reaction_type != ReactionType.IRREVERSIBLE and
+                elif (reaction.reaction_type != ReactionType.IRREVERSIBLE and
                         (_check_for_match([substrate_name], relation_product_kegg_accession)
                         and _check_for_match(product_names, relation_substrate_kegg_accession))):
                     # Found a reverse match!
-                    return KeggReactionIdWithReversion(reaction.reaction_in_map.reaction_id, reversed=True)
+                    yield KeggReactionIdWithReversion(reaction.reaction_in_map.reaction_id, reversed=True)
         return None
 
     def _reaction_id_to_str(self, reaction_id: KeggReactionId) -> str:

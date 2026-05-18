@@ -48,9 +48,9 @@ Let's say you have a pandas DataFrame like this:
 import pandas
 
 data_frame = pandas.DataFrame({
-    "reactions": ["1.00 * Citrate [c] --> 1.00 * Isocitrate [c] ACO1; IREB2", 
-                "1.00 * Isocitrate [c] --> 1.00 * alpha-Ketoglutarate [c] ACO1; IREB2",
-                "1.00 * alpha-Ketoglutarate [c] --> 1.00 * Succinyl-CoA [c] OGDH; DLST"],
+    "reactions": ["1.00 * Citrate [c] --> 1.00 * Isocitrate [c]", 
+                "1.00 * Isocitrate [c] --> 1.00 * alpha-Ketoglutarate [c]",
+                "1.00 * alpha-Ketoglutarate [c] --> 1.00 * Succinyl-CoA [c]"],
     "flux_values": [0.5, 1.0, 0.2]
 })
 ```
@@ -63,10 +63,11 @@ import metaboglobe.tabular_data
 kegg_map = ...  # See above
 data_frame = ...  # See above
 
-metaboglobe.tabular_data.insert_values_in_map(kegg_map, data_frame, reaction_col="reactions", value_col="flux_values")
+metaboglobe.tabular_data.insert_values_in_map(kegg_map, data_frame, reaction_identifier_column="reactions",
+                                              value_col="flux_values")
 ```
 
-And then plot like above.
+And then plot like above. Instead of reaction equations, you can also use the KEGG reaction IDs (e.g. rn:R00001) in the `reactions` column, KEGG ecRels (e.g. ec:1.1.1.1) or IDs from the standard-GEM initiative (e.g. MAR00001).
 
 Normally your data would not be hardcoded, but come from a data file such as a CSV file. If you're unfamiliar with Pandas, it's easy to load from a CSV file. For example, if you have a CSV file with the same columns as above, you can load it like this:
 

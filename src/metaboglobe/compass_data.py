@@ -1,53 +1,23 @@
-from abc import ABC, abstractmethod
-from importlib.resources import files
-
-import numpy
-import os
 import gzip
 import json
+import os
+from abc import ABC, abstractmethod
+from collections import defaultdict
+from importlib.resources import files
+from typing import NamedTuple
 
+import numpy
 import pandas
 import scanpy.get
 from anndata import AnnData
 from pandas import DataFrame
-from typing import NamedTuple
 
-from metaboglobe._util import optimize_for_matching
+from metaboglobe._translation_to_kegg_id import map_ecrel_to_kegg_reactions, map_gem_id_to_kegg_reactions
 from metaboglobe.kegg_pathway import KeggMap, KeggReactionIdWithReversion
 from metaboglobe.kegg_species import KeggReactionId
 
 
-def _read_gem_to_kegg_id() -> dict[str, KeggReactionId]:
-    """Reads the mapping from KEGG accession numbers to names from the "Kegg Metabolism" folder. In the returned mapping,
-    the main name is always the first one in the list, and the synonyms are the following ones."""
-    file_path = files("metaboglobe.data") / "gem_reactions.tsv"
-
-    mapping = dict()
-    with file_path.open("r") as handle:
-        line = handle.readline()
-        while line.startswith(";"):
-            line = handle.readline()
-
-        # Now we have the first line, read in the header
-        headers = line.split("\t")
-        gem_reaction_column = headers.index("rxns")
-        kegg_reaction_column = headers.index("rxnKEGGID")
-        line = handle.readline()
-
-        while line != "":
-            if not line.startswith(";"):
-                line_split = line.split("\t")
-                gem_reaction_id = line_split[gem_reaction_column]
-                kegg_reaction_id = line_split[kegg_reaction_column]
-                if kegg_reaction_id != "":
-                    mapping[gem_reaction_id] = KeggReactionId.create_from_id(kegg_reaction_id)
-
-            line = handle.readline()
-    return mapping
-
-
 _DEFAULT_OBSM_KEY = "compass"
-_GEM_TO_KEGG_MAPPING = _read_gem_to_kegg_id()
 
 
 class CompassReaction(NamedTuple):
@@ -57,32 +27,18 @@ class CompassReaction(NamedTuple):
 
 class CompassModel:
     """A class for mapping the reaction and metabolite IDs in the Compass output to the names."""
-    _reactions_by_id: dict[str, KeggReactionIdWithReversion]
+    _reactions_by_id: dict[str, list[KeggReactionIdWithReversion]]
 
     def __init__(self):
         self._reactions_by_id = dict()
 
-    def add_reaction(self, id: str):
-        """Adds the reaction with the given ID, reactants and products. The ID will be something like "MAR04363_pos"."""
+    def add_reaction(self, original_id: str, kegg_ids: list[KeggReactionId], reversed: bool):
+        """Adds the reaction with the given ID, reactants and products. The original ID will be something like "MAR04363_pos"."""
+        self._reactions_by_id[original_id] = [KeggReactionIdWithReversion(kegg_id, reversed) for kegg_id in kegg_ids]
 
-        reversed = False
-        id_without_direction = id
-        if id.endswith("_pos"):
-            id_without_direction = id[:-len("_pos")]
-        elif id.endswith("_neg"):
-            id_without_direction = id[:-len("_neg")]
-            reversed = True
-
-        if id_without_direction.startswith("R"):
-            kegg_reaction_id = KeggReactionId.create_from_id(id_without_direction)  # This model uses KEGG ids directly (I think the old RECON model of Compass did this?)
-        else:
-            kegg_reaction_id = _GEM_TO_KEGG_MAPPING.get(id_without_direction)
-        if kegg_reaction_id is not None:
-            self._reactions_by_id[id] = KeggReactionIdWithReversion(reaction_id=kegg_reaction_id, reversed=reversed)
-
-    def reaction(self, id: str) -> KeggReactionIdWithReversion | None:
-        """Gets the reaction with the given ID. For example, for "MAR04363_pos". Returns None if not found."""
-        return self._reactions_by_id.get(id, None)
+    def reactions(self, id: str) -> list[KeggReactionIdWithReversion]:
+        """Gets the reactions with the given ID. For example, for "MAR04363_pos". Returns None if not found."""
+        return self._reactions_by_id.get(id, [])
 
     def update(self, other: "CompassModel"):
         """Adds all the reactions and species from the other model to this model. If there are reactions or species
@@ -140,8 +96,8 @@ class _ComparisonToSingleCellValues(CompassComparison):
 
         for reaction_id, reaction_value, min_value, max_value in zip(reaction_ids, reaction_values,
                                                                      self._min_values_by_reaction, self._max_values_by_reaction):
-            reaction = self._model.reaction(reaction_id)
-            if reaction is None:
+            reactions = self._model.reactions(reaction_id)
+            if len(reactions) == 0:
                 continue
 
             if min_value == max_value:
@@ -152,7 +108,8 @@ class _ComparisonToSingleCellValues(CompassComparison):
                     scaled_reaction = 0
                 elif scaled_reaction > 1:
                     scaled_reaction = 1
-            kegg_map.set_reaction_score(reaction, scaled_reaction)
+            for reaction in reactions:
+                kegg_map.set_reaction_score(reaction, scaled_reaction)
 
 
 def setup_comparison_to_single_cells(adata: AnnData, model: CompassModel, *, groupby: str, obsm_key: str = _DEFAULT_OBSM_KEY, min_percentile: float = 30, max_percentile: float = 70) -> CompassComparison:
@@ -198,7 +155,28 @@ def _load_single_compass_model(folder: str) -> CompassModel:
 
     compass_model = CompassModel()
     for reaction in json_object["reactions"].values():
-        compass_model.add_reaction(reaction["id"])
+        reaction_id = reaction["id"]
+
+        # Check if positive or negative based on suffix, and remove said suffix
+        reversed = False
+        if reaction_id.endswith("_pos"):
+            reaction_id = reaction_id[:-4]
+        elif reaction_id.endswith("_neg"):
+            reaction_id = reaction_id[:-4]
+            reversed = True
+
+        # Translate the ID to the KEGG reaction id
+        if "meta" in reaction and "ECNumber" in reaction["meta"]:
+            # RECON model
+            ec_number = reaction["meta"]["ECNumber"]
+            for kegg_id in map_ecrel_to_kegg_reactions(ec_number):
+                compass_model.add_reaction(reaction["id"], kegg_id, reversed)
+        else:
+            # Human1 / Mouse1 model
+            kegg_id = map_gem_id_to_kegg_reactions(reaction_id)
+            if kegg_id is None:
+                continue
+            compass_model.add_reaction(reaction["id"], kegg_id, reversed)
 
     return compass_model
 

@@ -36,9 +36,9 @@ class TestKeggMap(TestCase):
         kegg_map.add_reaction(3, 2, 5, ReactionType.IRREVERSIBLE)
 
         # Check that the reaction that we find is now reversible
-        found_reaction = kegg_map.match_reaction(["atp"], ["o2"])
+        found_reaction = kegg_map.match_reactions(["atp"], ["o2"])
         self.assertEqual(found_reaction.reaction_id, KeggReactionArrow(2, 3, 5, ReactionType.TWO_IRREVERSIBLE))
 
         # Also check the other way around
-        found_reaction = kegg_map.match_reaction(["o2"], ["atp"])
+        found_reaction = kegg_map.match_reactions(["o2"], ["atp"])
         self.assertEqual(found_reaction.reaction_id, KeggReactionArrow(2, 3, 5, ReactionType.TWO_IRREVERSIBLE))
