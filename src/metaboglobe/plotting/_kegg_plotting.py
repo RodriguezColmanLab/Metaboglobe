@@ -91,23 +91,19 @@ def _draw_pathway_reference(ax: Axes, entry: KeggPathwayReferenceInMap, plot_sty
     display_name = wrap_text(entry.name,
                              int(entry.width // 6))  # Wrap text to fit within the entry box, assuming an average character width of 6 pixels
     rect = matplotlib.patches.Rectangle((entry.x - entry.width / 2, entry.y - entry.height / 2),
-                                        entry.width, entry.height, fill=True, color="#c1bcb8")
+                                        entry.width, entry.height, fill=True, color="#c1bcb8", zorder=-10)
     ax.add_patch(rect)
     ax.text(entry.x, entry.y, display_name, ha="center", va="center", fontsize=6, zorder=10)
 
 
-def _draw_enzyme(ax: Axes, entry, plot_style: PlotStyle):
-    if "," in entry.name:
-        display_name = entry.name.split(",")[0] + ", ..."
-    else:
-        display_name = entry.name
+def _draw_enzyme(ax: Axes, entry: KeggReactionEnzymeInMap, plot_style: PlotStyle):
     bbox = {"facecolor": plot_style.enzyme_facecolor, "edgecolor": plot_style.enzyme_edgecolor,
             "linewidth": plot_style.enzyme_linewidth}
     if plot_style.enzyme_rounding:
         bbox["boxstyle"] = f"round,pad={plot_style.enzyme_padding}"
     else:
         bbox["pad"] = plot_style.enzyme_padding
-    ax.text(entry.x, entry.y, display_name, ha="center", va="center", fontsize=6, zorder=10,
+    ax.text(entry.x, entry.y, entry.display_name, ha="center", va="center", fontsize=6, zorder=10,
             color=plot_style.enzyme_textcolor, bbox=bbox)
 
 
@@ -184,7 +180,7 @@ def _find_reaction_curve(reaction: KeggReactionArrow, plot_style: PlotStyle) -> 
     # Build an initial box
     from_entry = _to_vector(reaction.substrate)
     to_entry = _to_vector(reaction.product)
-    enzyme_entry = _to_vector(reaction.reaction_in_map)
+    enzyme_entry = _to_vector(reaction.reaction_enzyme_in_map)
     box = Box2.enclosing(from_entry, to_entry, enzyme_entry)
 
     # If any of the points are very close to the box, just move them there

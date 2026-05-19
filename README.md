@@ -63,11 +63,11 @@ import metaboglobe.tabular_data
 kegg_map = ...  # See above
 data_frame = ...  # See above
 
-metaboglobe.tabular_data.insert_values_in_map(kegg_map, data_frame, reaction_identifier_column="reactions",
+metaboglobe.tabular_data.insert_values_in_map(kegg_map, data_frame, reaction_identifier_col="reactions",
                                               value_col="flux_values")
 ```
 
-And then plot like above. Instead of reaction equations, you can also use the KEGG reaction IDs (e.g. rn:R00001) in the `reactions` column, KEGG ecRels (e.g. ec:1.1.1.1) or IDs from the standard-GEM initiative (e.g. MAR00001).
+And then plot like above. Instead of reaction equations, you can also use the KEGG reaction IDs (e.g. rn:R00001) in the `reactions` column, ecNums (e.g. ec:1.1.1.1) or IDs from the standard-GEM initiative (e.g. MAR00001). If you use reaction equations, you can also specify enzymes to narrow down possible matches. See the documentation of the function for more details.
 
 Normally your data would not be hardcoded, but come from a data file such as a CSV file. If you're unfamiliar with Pandas, it's easy to load from a CSV file. For example, if you have a CSV file with the same columns as above, you can load it like this:
 

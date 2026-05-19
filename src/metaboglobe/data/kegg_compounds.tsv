@@ -1,4 +1,4 @@
-; Downloaded from https://rest.kegg.jp/list/compound on 2026-04-14
+; Downloaded from https://rest.kegg.jp/list/compound on 2026-04-14; modified to add extra alternative names
 C00001	H2O; Water
 C00002	ATP; Adenosine 5'-triphosphate
 C00003	NAD+; NAD; Nicotinamide adenine dinucleotide; DPN; Diphosphopyridine nucleotide; Nadide; beta-NAD+
@@ -12,7 +12,7 @@ C00010	CoA; Coenzyme A; CoA-SH
 C00011	CO2; Carbon dioxide
 C00012	Peptide
 C00013	Diphosphate; Diphosphoric acid; Pyrophosphate; Pyrophosphoric acid; PPi
-C00014	Ammonia; NH3
+C00014	Ammonia; NH3; Ammonium
 C00015	UDP; Uridine 5'-diphosphate
 C00016	FAD; Flavin adenine dinucleotide
 C00017	Protein

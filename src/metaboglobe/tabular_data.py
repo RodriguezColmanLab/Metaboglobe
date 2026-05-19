@@ -46,8 +46,8 @@ def _parse_compounds(full_reaction_equation: str, compounds_str: str):
     return compounds
 
 
-def insert_values_in_map(kegg_map: KeggMap, data_frame: pandas.DataFrame, *, reaction_identifier_column: str, value_col: str,
-                         reversed_col: str | None = None) -> None:
+def insert_values_in_map(kegg_map: KeggMap, data_frame: pandas.DataFrame, *, reaction_identifier_col: str, value_col: str,
+                         reversed_col: str | None = None, enzyme_col: str | None = None, enzyme_col_sep: str = ";") -> None:
     """Reads values from the given data frame into the given metabolic map. The dataframe must have a column with
     reactions, and a column with values. Optionally, it can also have a column that indicates whether the
     reaction must be reversed or not. (If reversed is true, the corresponding value is registered for the inverse
@@ -66,48 +66,65 @@ def insert_values_in_map(kegg_map: KeggMap, data_frame: pandas.DataFrame, *, rea
       The "-->", "+" and "*" are mandatory though.
       Warning: enzymes are ignored here in the matching, which will be an issue if multiple reactions share the same
       substrate and product in the same map. In that case, the value will be registered for the all reactions that
-      matches the equation.
+      matches the equation. You can avoid this by using the enzyme_col parameter.
     - an ECNumber identifier: "ec:6.2.1.50". The "ec:" prefix is optional.
     - a KEGG Reaction ID: "rn:R11608". The "rn:" prefix is optional.
     - a GEM reaction ID: "MAR08691". The "MAR" prefix is *mandatory*.
+
+    The enzyme_col parameter is only used if reaction_identifier_col points to a reaction. If present, reactions are
+    only matched if at least one enzyme name matches. It is expected to be a list, or a string separated by the
+    enzyme_col_sep parameter (default ";"). This is useful to avoid matching the same reaction multiple times if
+    multiple reactions share the same substrate and product in the same map.
     """
 
-    reactions = data_frame[reaction_identifier_column]
-    values = data_frame[value_col]
+    reactions_all = data_frame[reaction_identifier_col]
+    values_all = data_frame[value_col]
     if reversed_col is None:
-        reversions = pandas.Series(False, index=reactions.index)  # Just assume no reactions are reversed
+        reversions_all = pandas.Series(False, index=reactions_all.index)  # Just assume no reactions are reversed
     else:
-        reversions = data_frame[reversed_col]
+        reversions_all = data_frame[reversed_col]
+    enzymes_all = data_frame[enzyme_col] if enzyme_col is not None else None
 
-    for reaction, reversed, value in zip(reactions, reversions, values):
+    for i in range(len(reactions_all)):
+        reaction = reactions_all[i]
         if not isinstance(reaction, str):
             continue  # Likely NA or something like that
 
+        reaction_value = values_all[i]
+        reaction_reversed = reversions_all[i]
+
         # Reaction equation
         if "-->" in reaction:
+            enzyme_names = None
+            enzymes_str = enzymes_all[i] if enzymes_all is not None else None
+            if isinstance(enzymes_str, str):
+                enzyme_names = enzymes_str.split(enzyme_col_sep)
+            elif isinstance(enzymes_str, list):
+                enzyme_names = enzymes_str
+
             substrate_names, product_names = parse_reaction(reaction)
-            if reversed:
+            if reaction_reversed:
                 product_names, substrate_names = substrate_names, product_names
-            matched_reactions = list(kegg_map.match_reactions(substrate_names, product_names))
+            matched_reactions = list(kegg_map.match_reactions(substrate_names=substrate_names, product_names=product_names, enzyme_names=enzyme_names))
             for matched_reaction in matched_reactions:
-                kegg_map.set_reaction_score(matched_reaction, value)
+                kegg_map.set_reaction_score(matched_reaction, reaction_value)
 
         # ECNums
         elif _ECREL_DETECTION.fullmatch(reaction):
             if reaction.startswith("ec:"):
                 reaction = reaction[3:]
             for matched_reaction in _translation_to_kegg_id.map_ecrel_to_kegg_reactions(reaction):
-                kegg_map.set_reaction_score(KeggReactionIdWithReversion(matched_reaction, reversed), value)
+                kegg_map.set_reaction_score(KeggReactionIdWithReversion(matched_reaction, reaction_reversed), reaction_value)
 
         # KEGG reaction IDs
         elif reaction.startswith("R"):
             matched_reaction = KeggReactionId.create_from_id(reaction)
-            kegg_map.set_reaction_score(KeggReactionIdWithReversion(matched_reaction, reversed), value)
+            kegg_map.set_reaction_score(KeggReactionIdWithReversion(matched_reaction, reaction_reversed), reaction_value)
         elif reaction.startswith("rn:"):
             matched_reaction = KeggReactionId(reaction)
-            kegg_map.set_reaction_score(KeggReactionIdWithReversion(matched_reaction, reversed), value)
+            kegg_map.set_reaction_score(KeggReactionIdWithReversion(matched_reaction, reaction_reversed), reaction_value)
 
         # GEM IDs
         elif reaction.startswith("MAR"):
             for matched_reaction in _translation_to_kegg_id.map_gem_id_to_kegg_reactions(reaction):
-                kegg_map.set_reaction_score(KeggReactionIdWithReversion(matched_reaction, reversed), value)
+                kegg_map.set_reaction_score(KeggReactionIdWithReversion(matched_reaction, reaction_reversed), reaction_value)

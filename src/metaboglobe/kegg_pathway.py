@@ -92,11 +92,27 @@ class KeggReactionEnzymeInMap(NamedTuple):
     """Represents an enzyme in the KEGG pathway map. Does not state what the substrates and products are."""
     reaction_id: KeggReactionId
     entry_in_map_id: int
-    name: str
+    gene_names: tuple[str, ...]  # Using a tuple to make immutable
+    gene_names_for_matching: tuple[str, ...]
     x: float
     y: float
     width: float
     height: float
+
+    @property
+    def display_name(self) -> str:
+        """Returns a shortened display name based on the enzymes."""
+        if len(self.gene_names) > 1:
+            return self.gene_names[0] + ", ..."
+        if len(self.gene_names) == 0:
+            return "?"
+        return self.gene_names[0]
+
+    @staticmethod
+    def create(reaction_id: KeggReactionId, entry_in_map_id: int, gene_names: Iterable[str], x: float, y: float, width: float, height: float) -> "KeggReactionEnzymeInMap":
+        gene_names = tuple(gene_names)
+        gene_names_for_matching = tuple(optimize_for_matching(name) for name in gene_names)
+        return KeggReactionEnzymeInMap(reaction_id, entry_in_map_id, gene_names, gene_names_for_matching, x, y, width, height)
 
 
 class KeggOtherPathwayRelationInMap(NamedTuple):
@@ -115,7 +131,7 @@ class KeggOtherPathwayRelationInMap(NamedTuple):
 
 class KeggReactionArrow(NamedTuple):
     """Represents a chemical reaction in the KEGG pathway map. Should contain all the information to draw the arrow."""
-    reaction_in_map: KeggReactionEnzymeInMap
+    reaction_enzyme_in_map: KeggReactionEnzymeInMap
     substrate: KeggCompoundInMap
     product: KeggCompoundInMap
     reaction_type: ReactionType
@@ -130,7 +146,7 @@ class KeggReactionArrow(NamedTuple):
 
     @property
     def reaction_id(self) -> KeggReactionId:
-        return self.reaction_in_map.reaction_id
+        return self.reaction_enzyme_in_map.reaction_id
 
 
 class KeggReactionIdWithReversion(NamedTuple):
@@ -152,6 +168,13 @@ def _check_for_match(matching_names: list[str], kegg_identifier: KeggCompoundId)
     """
     for kegg_name in _ACCESSION_NUMBER_TO_NAMES.get(kegg_identifier, []):
         if optimize_for_matching(kegg_name) in matching_names:
+            return True
+    return False
+
+
+def _check_for_gene_name_match(first: list[str] | tuple[str, ...], second: list[str] | tuple[str, ...]) -> bool:
+    for i in range(len(first)):
+        if first[i] in second:
             return True
     return False
 
@@ -234,9 +257,9 @@ class KeggMap:
         self._compounds.append(compound)
         return compound
 
-    def add_reaction_enzyme(self, reaction_id: KeggReactionId, entry_in_map_id: int, name: str, x: float, y: float, width: float, height: float):
+    def add_reaction_enzyme(self, reaction_id: KeggReactionId, entry_in_map_id: int, gene_names: list[str], x: float, y: float, width: float, height: float):
         """Adds a reaction enzyme to the map at the given location."""
-        enzyme = KeggReactionEnzymeInMap(reaction_id, entry_in_map_id, name, x, y, width, height)
+        enzyme = KeggReactionEnzymeInMap.create(reaction_id, entry_in_map_id, gene_names, x, y, width, height)
         self._reaction_enzymes.append(enzyme)
         return enzyme
 
@@ -262,18 +285,28 @@ class KeggMap:
         """Relations connect entries, identified using the entry IDs."""
         self._relations_to_other_pathways.append(KeggOtherPathwayRelationInMap(compound, pathway))
 
-    def match_reactions(self, substrate_names: list[str], product_names: list[str]) -> Iterable[KeggReactionIdWithReversion]:
+    def match_reactions(self, *, substrate_names: list[str], product_names: list[str], enzyme_names: list[str] | None = None) -> Iterable[KeggReactionIdWithReversion]:
         """Given a list of substrate names and product names, searches for a reaction in this pathway that matches
         one of the substrate names and one of the product names. The given names are expected to be names like
         "D-Fructose-6P". The method uses all the known names of Kegg to match. If a name is provided without
         specifying the stereoisomer (like "Fructose-6P", without the "D-") it can match to any stereoisomer in the
-        pathway. Returns None if there was no match."""
+        pathway. Returns None if there was no match.
+
+        If a non-empty list of enzyme gene names is given, a match of at least one enzyme is also required.
+        """
+        if enzyme_names is None:
+            enzyme_names = []
+
         substrate_names = [optimize_for_matching(name) for name in substrate_names]
         product_names = [optimize_for_matching(name) for name in product_names]
+        enzyme_names = [optimize_for_matching(name) for name in enzyme_names]
 
         for substrate_name in substrate_names:
             for reaction in self._reaction_by_compound_names.get(substrate_name, []):
                 # Found a relation with at least one match somewhere
+
+                if enzyme_names and not _check_for_gene_name_match(enzyme_names, reaction.reaction_enzyme_in_map.gene_names_for_matching):
+                    continue  # Asked for enzyme matches, but none found
 
                 relation_substrate_kegg_accession = reaction.substrate_id
                 relation_product_kegg_accession = reaction.product_id
@@ -281,13 +314,13 @@ class KeggMap:
                 if (_check_for_match([substrate_name], relation_substrate_kegg_accession)
                         and _check_for_match(product_names, relation_product_kegg_accession)):
                     # Found a match!
-                    yield KeggReactionIdWithReversion(reaction.reaction_in_map.reaction_id, reversed=False)
+                    yield KeggReactionIdWithReversion(reaction.reaction_enzyme_in_map.reaction_id, reversed=False)
 
                 elif (reaction.reaction_type != ReactionType.IRREVERSIBLE and
                         (_check_for_match([substrate_name], relation_product_kegg_accession)
                         and _check_for_match(product_names, relation_substrate_kegg_accession))):
                     # Found a reverse match!
-                    yield KeggReactionIdWithReversion(reaction.reaction_in_map.reaction_id, reversed=True)
+                    yield KeggReactionIdWithReversion(reaction.reaction_enzyme_in_map.reaction_id, reversed=True)
         return None
 
     def _reaction_id_to_str(self, reaction_id: KeggReactionId) -> str:
@@ -414,7 +447,11 @@ def load_kegg_map(path: str) -> KeggMap:
             if "reaction" not in entry.attrib:
                 continue
             reaction_id = KeggReactionId(entry.attrib["reaction"])
-            reaction_enzyme = kegg_map.add_reaction_enzyme(reaction_id, entry_id, display_name, x, y, width, height)
+            # We parse the available genes from the display name, by splitting on "," and stripping any "..." at the end
+            if display_name.endswith("..."):
+                display_name = display_name[:-3]
+            gene_names = [part.strip() for part in display_name.split(",")]
+            reaction_enzyme = kegg_map.add_reaction_enzyme(reaction_id, entry_id, gene_names, x, y, width, height)
             gene_entries[entry_id] = reaction_enzyme
         elif entry_type == "map":
             pathway_id = KeggPathwayId(entry.attrib["name"])

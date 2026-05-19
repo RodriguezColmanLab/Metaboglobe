@@ -19,6 +19,7 @@ def optimize_for_display(name: str) -> str:
 
 
 def optimize_for_matching(name: str) -> str:
+    name = name.strip()
     if name.endswith("(1-)"):
         name = name[:-4]  # Remove negative charge
     return name.lower().replace(" ", "-")
