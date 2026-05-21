@@ -12,7 +12,9 @@ import scanpy.get
 from anndata import AnnData
 from pandas import DataFrame
 
+from metaboglobe import kegg_pathway
 from metaboglobe._translation_to_kegg_id import map_ecrel_to_kegg_reactions, map_gem_id_to_kegg_reactions
+from metaboglobe._util import optimize_for_matching
 from metaboglobe.kegg_pathway import KeggMap, KeggReactionIdWithReversion
 from metaboglobe.kegg_species import KeggReactionId
 
@@ -21,28 +23,47 @@ _DEFAULT_OBSM_KEY = "compass"
 
 
 class CompassReaction(NamedTuple):
+    """A reaction as specified by the Compass model, still needs to be matched to a reaction in the KEGG pathway."""
+
+    kegg_ids: list[KeggReactionId]  # Translated using lookup tables, may be empty
+
+    # If that fails, try to match using reactant and product names
     reactant_names: list[str]
     product_names: list[str]
+    enzyme_names: list[str]
 
 
 class CompassModel:
     """A class for mapping the reaction and metabolite IDs in the Compass output to the names."""
-    _reactions_by_id: dict[str, list[KeggReactionIdWithReversion]]
+
+    _species_names_by_id: dict[str, str]
+    _reactions_by_id: dict[str, CompassReaction]
+
 
     def __init__(self):
         self._reactions_by_id = dict()
+        self._species_names_by_id = dict()
 
-    def add_reaction(self, original_id: str, kegg_ids: list[KeggReactionId], reversed: bool):
+    def add_species(self, id: str, name: str):
+        self._species_names_by_id[id] = name
+
+    def species(self, id: str) -> str:
+        """Gets the species with the given ID. For example, for "MAM01840e" it could return "fructose". Returns
+        the ID itself if not found."""
+        return self._species_names_by_id.get(id, id)
+
+    def add_reaction(self, original_id: str, compass_reaction: CompassReaction):
         """Adds the reaction with the given ID, reactants and products. The original ID will be something like "MAR04363_pos"."""
-        self._reactions_by_id[original_id] = [KeggReactionIdWithReversion(kegg_id, reversed) for kegg_id in kegg_ids]
+        self._reactions_by_id[original_id] = compass_reaction
 
-    def reactions(self, id: str) -> list[KeggReactionIdWithReversion]:
+    def reaction(self, id: str) -> CompassReaction | None:
         """Gets the reactions with the given ID. For example, for "MAR04363_pos". Returns None if not found."""
-        return self._reactions_by_id.get(id, [])
+        return self._reactions_by_id.get(id)
 
     def update(self, other: "CompassModel"):
         """Adds all the reactions and species from the other model to this model. If there are reactions or species
         with the same ID, they will be overwritten."""
+        self._species_names_by_id.update(other._species_names_by_id)
         self._reactions_by_id.update(other._reactions_by_id)
 
 
@@ -55,6 +76,38 @@ class CompassComparison(ABC):
         of the given group."""
         return NotImplemented
 
+
+def _match_reactions_to_map(compass_reaction: CompassReaction, kegg_map: KeggMap
+                            ) -> list[KeggReactionIdWithReversion]:
+    """As described in the README, we use two strategies for matching a Compass reaction to the pathway:
+
+    - first we try using the translated KEGG Reaction ID. However, there are some edge cases where the ID mapping
+      fails, and the same reaction in the pathway is not found.
+    - second, we try matching by substrate, product and enzyme name. For each of these three, at least one needs to
+      match.
+    """
+    matches = list()
+    for kegg_id in compass_reaction.kegg_ids:
+        map_reactions = kegg_map.reaction_arrows_by_id(kegg_id)
+        if len(map_reactions) > 0:
+            # Try matching using KEGG id, we have results
+            # Just need to figure out whether our reaction is reversed compared to the reaction on the map, or not
+            substrate_names = [optimize_for_matching(name) for name in compass_reaction.reactant_names]
+            product_names = [optimize_for_matching(name) for name in compass_reaction.product_names]
+            for map_reaction in map_reactions:
+                if kegg_pathway.check_for_match(substrate_names, map_reaction.product.compound_id) \
+                    or kegg_pathway.check_for_match(product_names, map_reaction.substrate.compound_id):
+                    # Appears that reaction is reversed
+                    matches.append(KeggReactionIdWithReversion(kegg_id, reversed=True))
+                else:
+                    matches.append(KeggReactionIdWithReversion(kegg_id, reversed=False))
+    if len(matches) > 0:
+        return matches  # Succesfull using KEGG id match
+
+    # Try matching by name as fallback
+    return list(kegg_map.match_reactions(substrate_names=compass_reaction.reactant_names,
+                                         product_names=compass_reaction.product_names,
+                                         enzyme_names=compass_reaction.enzyme_names))
 
 
 class _ComparisonToSingleCellValues(CompassComparison):
@@ -96,7 +149,10 @@ class _ComparisonToSingleCellValues(CompassComparison):
 
         for reaction_id, reaction_value, min_value, max_value in zip(reaction_ids, reaction_values,
                                                                      self._min_values_by_reaction, self._max_values_by_reaction):
-            reactions = self._model.reactions(reaction_id)
+            compass_reaction = self._model.reaction(reaction_id)
+            if compass_reaction is None:
+                continue
+            reactions = _match_reactions_to_map(compass_reaction, kegg_map)
             if len(reactions) == 0:
                 continue
 
@@ -154,29 +210,41 @@ def _load_single_compass_model(folder: str) -> CompassModel:
     json_object = json.loads(model_json)
 
     compass_model = CompassModel()
+
+    # Read in the compound names
+    for species in json_object["species"].values():
+        name = species["name"]
+        if not name:
+            continue
+        compass_model.add_species(species["id"], name)
+
+    # Read in the reactions
     for reaction in json_object["reactions"].values():
         reaction_id = reaction["id"]
 
-        # Check if positive or negative based on suffix, and remove said suffix
-        reversed = False
-        if reaction_id.endswith("_pos"):
-            reaction_id = reaction_id[:-4]
-        elif reaction_id.endswith("_neg"):
-            reaction_id = reaction_id[:-4]
-            reversed = True
+        kegg_ids = []
 
         # Translate the ID to the KEGG reaction id
         if "meta" in reaction and "ECNumber" in reaction["meta"]:
             # RECON model
             ec_number = reaction["meta"]["ECNumber"]
-            for kegg_id in map_ecrel_to_kegg_reactions(ec_number):
-                compass_model.add_reaction(reaction["id"], kegg_id, reversed)
+            kegg_ids += map_ecrel_to_kegg_reactions(ec_number)
         else:
             # Human1 / Mouse1 model
-            kegg_id = map_gem_id_to_kegg_reactions(reaction_id)
-            if kegg_id is None:
-                continue
-            compass_model.add_reaction(reaction["id"], kegg_id, reversed)
+            reaction_id_without_direction = reaction["id"]
+            if reaction_id_without_direction.endswith("_pos") or reaction_id_without_direction.endswith("_neg"):
+                reaction_id_without_direction = reaction_id_without_direction[:-4]
+            kegg_ids += map_gem_id_to_kegg_reactions(reaction_id_without_direction)
+
+        reactants = reaction["reactants"].keys()
+        products = reaction["products"].keys()
+        gene_names = list()
+        for gene in reaction["genes"].values():
+            gene_names.append(gene["name"])
+        reactant_names = [compass_model.species(r) for r in reactants]
+        product_names = [compass_model.species(p) for p in products]
+
+        compass_model.add_reaction(reaction_id, CompassReaction(kegg_ids=kegg_ids, reactant_names=reactant_names, product_names=product_names, enzyme_names=gene_names))
 
     return compass_model
 

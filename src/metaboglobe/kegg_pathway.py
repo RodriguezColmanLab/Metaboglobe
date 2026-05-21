@@ -163,7 +163,7 @@ def get_display_name(kegg_accession_id: KeggCompoundId) -> str:
     return optimize_for_display(display_name)
 
 
-def _check_for_match(matching_names: list[str], kegg_identifier: KeggCompoundId) -> bool:
+def check_for_match(matching_names: list[str], kegg_identifier: KeggCompoundId) -> bool:
     """Checks if any of the matching_names (like "acetic-acid") matches any of the names behind the KEGG identifier (like "C00003").
     """
     for kegg_name in _ACCESSION_NUMBER_TO_NAMES.get(kegg_identifier, []):
@@ -194,7 +194,7 @@ class KeggMap:
     _pathway_references: list[KeggPathwayReferenceInMap]
 
     _relations_to_other_pathways: list[KeggOtherPathwayRelationInMap]
-    _reaction_arrows: list[KeggReactionArrow]
+    _reaction_arrows: dict[KeggReactionId, list[KeggReactionArrow]]
     _reactions_forward_values: dict[KeggReactionId, float]
     _reactions_backward_values: dict[KeggReactionId, float]
     _reaction_by_compound_names: dict[str, list[KeggReactionArrow]]
@@ -207,7 +207,7 @@ class KeggMap:
         self._pathway_references = list()
         self._relations_to_other_pathways = list()
 
-        self._reaction_arrows = list()
+        self._reaction_arrows = defaultdict(list)
         self._reactions_forward_values = dict()
         self._reactions_backward_values = dict()
         self._reaction_by_compound_names = defaultdict(list)
@@ -273,7 +273,7 @@ class KeggMap:
         """Add the reaction arrow, connecting a substrate, enzyme and product."""
 
         reaction = KeggReactionArrow(enzyme, substrate, product, reaction_type)
-        self._reaction_arrows.append(reaction)
+        self._reaction_arrows[enzyme.reaction_id].append(reaction)
 
         # Populate compound name mappings
         for kegg_compound_id in [substrate.compound_id, product.compound_id]:
@@ -311,20 +311,20 @@ class KeggMap:
                 relation_substrate_kegg_accession = reaction.substrate_id
                 relation_product_kegg_accession = reaction.product_id
 
-                if (_check_for_match([substrate_name], relation_substrate_kegg_accession)
-                        and _check_for_match(product_names, relation_product_kegg_accession)):
+                if (check_for_match([substrate_name], relation_substrate_kegg_accession)
+                        and check_for_match(product_names, relation_product_kegg_accession)):
                     # Found a match!
                     yield KeggReactionIdWithReversion(reaction.reaction_enzyme_in_map.reaction_id, reversed=False)
 
                 elif (reaction.reaction_type != ReactionType.IRREVERSIBLE and
-                        (_check_for_match([substrate_name], relation_product_kegg_accession)
-                        and _check_for_match(product_names, relation_substrate_kegg_accession))):
+                        (check_for_match([substrate_name], relation_product_kegg_accession)
+                         and check_for_match(product_names, relation_substrate_kegg_accession))):
                     # Found a reverse match!
                     yield KeggReactionIdWithReversion(reaction.reaction_enzyme_in_map.reaction_id, reversed=True)
         return None
 
     def _reaction_id_to_str(self, reaction_id: KeggReactionId) -> str:
-        for reaction_arrow in self._reaction_arrows:
+        for reaction_arrow in self.reaction_arrows:
             if reaction_arrow.reaction_id == reaction_id:
                 return (reaction_id.reaction_id + ": "
                         + (_ACCESSION_NUMBER_TO_NAMES[reaction_arrow.substrate_id][0] + " -> "
@@ -352,9 +352,14 @@ class KeggMap:
         return self._reaction_enzymes
 
     @property
-    def reaction_arrows(self) -> Collection[KeggReactionArrow]:
+    def reaction_arrows(self) -> Iterable[KeggReactionArrow]:
         """Gets all available reaction."""
-        return self._reaction_arrows
+        for arrows in self._reaction_arrows.values():
+            yield from arrows
+
+    def reaction_arrows_by_id(self, kegg_id: KeggReactionId) -> list[KeggReactionArrow]:
+        """Gets the reactions with the given id from the map. Returns None if the reaction is not in the map."""
+        return self._reaction_arrows[kegg_id]
 
     @property
     def other_pathway_relations(self) -> Collection[KeggOtherPathwayRelationInMap]:

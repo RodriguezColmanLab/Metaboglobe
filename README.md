@@ -106,6 +106,8 @@ comparison.insert_values_in_map(kegg_map, group="condition_a")
 # Plot the kegg_map as shown above. It should now be colored according to the Compass fluxes for "condition_a".
 ```
 
+Reactions are first matched to the pathway using the IDs stored in the model, either EC numbers (for the RECON model) or GEM reaction IDs (for the Human1 or similar model), which are translated to KEGG Reaction IDs. However, in some cases this matching fails. For example, the Human1 model models the reaction [R00771](https://www.kegg.jp/entry/R00771), but the glycolysis pathway of KEGG shows the reaction [R13199](https://www.kegg.jp/entry/R13199). These reactions are actually the same, and differ only on the level at which stereoisomers are specified. In these cases matching is done by comparing the product names, reactant names and enzyme gene names. If all of these have at least one match, then the reaction is considered a match.
+
 ## Metabolites
 [gem_reactions.csv](src/metaboglobe/data/gem_reactions.tsv) was downloaded from https://github.com/SysBioChalmers/Human-GEM/blob/635f533152dc5f7290ce04d12700eaa882273c3e/model/reactions.tsv .  (Robinson JL, et al. An atlas of human metabolism. Sci. Signal. 13, eaaz1482 (2020). [doi:10.1126/scisignal.aaz1482](https://doi.org/10.1126/scisignal.aaz1482) )
 
