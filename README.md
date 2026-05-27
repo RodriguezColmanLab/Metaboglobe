@@ -34,12 +34,20 @@ metaboglobe.plotting.plot_kegg(ax, kegg_map)
 plt.show()
 ```
 
-## How the plotting works
-The KEGG map has information on which metabolites, pathway references and enzymes are present on which locations, and how they are connected. What it lacks, is the path of the arrows, or the location of the metabolite labels. To still be able to make a plot, we have created several layout algorithms.
+You can then color individual reactions or metabolites like this:
 
-For most reactions, we can draw a U-shaped path, where the metabolites are on both ends of the U, and the enzyme label is at the bottom of the U. The lines of the U are axis-aligned (so along the X or Y axis, no diagonals), and have a rounded corner. The algorithm works by first drawing a bounding box around the two metabolites and the enzyme. If the enzyme is on one of the four sides of the bounding box, then we can draw a U-shaped path. However, if that's not the case, we just draw a straight (non-axis-aligned) line from one metabolite to the enzyme, and then from the enzyme to the other metabolite, with a rounded corner at the metabolite. This is not ideal, but it still allows us to visualize the pathway.
+```python
+from metaboglobe.kegg_species import KeggReactionId, KeggCompoundId
+kegg_map = ...  # See above
 
-For the metabolite labels, we set up a collision map for the entire plot, blocking the areas where lines or labels are already drawn. Then, we sort all metabolite labels by the text width (largest first). Then, in this order we try to place it in one of the 9 possible locations on or around the metabolite (top, top-right, right, bottom-right, bottom, bottom-left, left, top-left, center). Each location gets a score based on the location itself (right is preferred over bottom-right) and how much it overlaps with blocked areas in the collision map. The location with the best score is chosen, and the collision map is updated to block the area of the label.
+# Sets the score of KEGG reaction R00703 (lactate -> pyruvate) in the forward direction to 0.5
+kegg_map.set_reaction_score(KeggReactionId.create_from_id("R00703").forwards(), 0.5)
+
+# Sets the score of KEGG compound C00022 (pyruvate) to 0.8
+kegg_map.set_compound_score(KeggCompoundId.create_from_id("C00022"), 0.8)
+```
+
+Since it's not very convenient to set the scores one by one using the KEGG IDs, there are also helper functions to set scores in bulk using reaction equations or compound names. See the next section for how to use these functions.
 
 ## How to use with a data table
 Let's say you have a pandas DataFrame like this:
@@ -107,6 +115,13 @@ comparison.insert_values_in_map(kegg_map, group="condition_a")
 ```
 
 Reactions are first matched to the pathway using the IDs stored in the model, either EC numbers (for the RECON model) or GEM reaction IDs (for the Human1 or similar model), which are translated to KEGG Reaction IDs. However, in some cases this matching fails. For example, the Human1 model models the reaction [R00771](https://www.kegg.jp/entry/R00771), but the glycolysis pathway of KEGG shows the reaction [R13199](https://www.kegg.jp/entry/R13199). These reactions are actually the same, and differ only on the level at which stereoisomers are specified. In these cases matching is done by comparing the product names, reactant names and enzyme gene names. If all of these have at least one match, then the reaction is considered a match.
+
+## How the plotting works
+The KEGG map has information on which metabolites, pathway references and enzymes are present on which locations, and how they are connected. What it lacks, is the path of the arrows, or the location of the metabolite labels. To still be able to make a plot, we have created several layout algorithms.
+
+For most reactions, we can draw a U-shaped path, where the metabolites are on both ends of the U, and the enzyme label is at the bottom of the U. The lines of the U are axis-aligned (so along the X or Y axis, no diagonals), and have a rounded corner. The algorithm works by first drawing a bounding box around the two metabolites and the enzyme. If the enzyme is on one of the four sides of the bounding box, then we can draw a U-shaped path. However, if that's not the case, we just draw a straight (non-axis-aligned) line from one metabolite to the enzyme, and then from the enzyme to the other metabolite, with a rounded corner at the metabolite. This is not ideal, but it still allows us to visualize the pathway.
+
+For the metabolite labels, we set up a collision map for the entire plot, blocking the areas where lines or labels are already drawn. Then, we sort all metabolite labels by the text width (largest first). Then, in this order we try to place it in one of the 9 possible locations on or around the metabolite (top, top-right, right, bottom-right, bottom, bottom-left, left, top-left, center). Each location gets a score based on the location itself (right is preferred over bottom-right) and how much it overlaps with blocked areas in the collision map. The location with the best score is chosen, and the collision map is updated to block the area of the label.
 
 ## Metabolites
 [gem_reactions.csv](src/metaboglobe/data/gem_reactions.tsv) was downloaded from https://github.com/SysBioChalmers/Human-GEM/blob/635f533152dc5f7290ce04d12700eaa882273c3e/model/reactions.tsv .  (Robinson JL, et al. An atlas of human metabolism. Sci. Signal. 13, eaaz1482 (2020). [doi:10.1126/scisignal.aaz1482](https://doi.org/10.1126/scisignal.aaz1482) )

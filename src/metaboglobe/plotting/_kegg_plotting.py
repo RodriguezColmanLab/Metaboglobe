@@ -47,7 +47,7 @@ def plot_kegg(ax: Axes, kegg_map: KeggMap, plot_style: PlotStyle) -> ScalarMappa
     # Draw entries
     for compound in kegg_map.compounds:
         if plot_style.plot_entries_without_reactions or kegg_map.has_relations_or_reactions(compound.compound_id):
-            _draw_compound(ax, compound, plot_style)
+            _draw_compound(ax, kegg_map, compound, plot_style)
     for pathway_reference in kegg_map.other_pathways:
         if plot_style.plot_entries_without_reactions or kegg_map.has_relations_or_reactions(pathway_reference.pathway_id):
             _draw_pathway_reference(ax, pathway_reference, plot_style)
@@ -64,7 +64,7 @@ def plot_kegg(ax: Axes, kegg_map: KeggMap, plot_style: PlotStyle) -> ScalarMappa
     # Draw compound names
     _draw_compound_names(ax, kegg_map, plot_style)
 
-    return ScalarMappable(Normalize(vmin=plot_style.flux_vmin, vmax=plot_style.flux_vmax), plot_style.flux_cmap)
+    return plot_style.flux_mappable()
 
 
 def _draw_compound_names(ax: Axes, kegg_map: KeggMap, plot_style: PlotStyle):
@@ -80,9 +80,13 @@ def _draw_compound_names(ax: Axes, kegg_map: KeggMap, plot_style: PlotStyle):
     collision_map.fit_text(ax, texts, fontsize=6, zorder=10)
 
 
-def _draw_compound(ax: Axes, entry: KeggCompoundInMap, plot_style: PlotStyle):
+def _draw_compound(ax: Axes, kegg_map: KeggMap, entry: KeggCompoundInMap, plot_style: PlotStyle):
+    value = kegg_map.get_compound_score(entry.compound_id)
+    vmin = plot_style.compound_vmin
+    vspread = plot_style.compound_vmax - plot_style.compound_vmin
+    color = plot_style.compound_nan_color if numpy.isnan(value) else plot_style.flux_cmap((value - vmin) / vspread)
     ax.add_patch(matplotlib.patches.Circle((entry.x, entry.y), plot_style.compound_radius,
-                                           facecolor=plot_style.compound_nan_color,
+                                           facecolor=color,
                                            edgecolor=plot_style.compound_edgecolor,
                                            linewidth=plot_style.compound_linewidth))
 
@@ -91,7 +95,10 @@ def _draw_pathway_reference(ax: Axes, entry: KeggPathwayReferenceInMap, plot_sty
     display_name = wrap_text(entry.name,
                              int(entry.width // 6))  # Wrap text to fit within the entry box, assuming an average character width of 6 pixels
     rect = matplotlib.patches.Rectangle((entry.x - entry.width / 2, entry.y - entry.height / 2),
-                                        entry.width, entry.height, fill=True, color="#c1bcb8", zorder=-10)
+                                        entry.width, entry.height, fill=True,
+                                        linewidth=plot_style.pathway_reference_linewidth,
+                                        edgecolor=plot_style.pathway_reference_edgecolor,
+                                        facecolor=plot_style.pathway_reference_facecolor, zorder=-10)
     ax.add_patch(rect)
     ax.text(entry.x, entry.y, display_name, ha="center", va="center", fontsize=6, zorder=10)
 
@@ -132,7 +139,7 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReactionArrow, plo
     vmin = plot_style.flux_vmin
     vspread = plot_style.flux_vmax - plot_style.flux_vmin
 
-    forward_value = kegg_map.forward_value(reaction.reaction_id)
+    forward_value = kegg_map.get_reaction_score(reaction.reaction_id.forwards())
     forward_color = plot_style.flux_nan_color if numpy.isnan(forward_value) else plot_style.flux_cmap((forward_value - vmin) / vspread)
     forward_arrowwidth = plot_style.flux_nan_arrowwidth if numpy.isnan(forward_value) else plot_style.flux_arrowwidth
     forward_edgewidth = plot_style.flux_nan_edgewidth if numpy.isnan(forward_value) else plot_style.flux_edgewidth
@@ -152,7 +159,7 @@ def _draw_reaction(ax: Axes, kegg_map: KeggMap, reaction: KeggReactionArrow, plo
 
         if reaction.reaction_type == ReactionType.REVERSIBLE:
             # Also draw backwards arrow
-            backward_value = kegg_map.backward_value(reaction.reaction_id)
+            backward_value = kegg_map.get_reaction_score(reaction.reaction_id.backwards())
             backward_color = plot_style.flux_nan_color if numpy.isnan(backward_value) else plot_style.flux_cmap((backward_value - vmin) / vspread)
             backward_arrowwidth = plot_style.flux_nan_arrowwidth if numpy.isnan(backward_value) else plot_style.flux_arrowwidth
             backward_edgewidth = plot_style.flux_nan_edgewidth if numpy.isnan(backward_value) else plot_style.flux_edgewidth
@@ -270,6 +277,6 @@ def _draw_maplink(ax: Axes, relation: KeggOtherPathwayRelationInMap, plot_style:
 
         # Build that path
         curve.append_cut_corner_to(corner=shortest_distance_path[1], end=shortest_distance_path[0])
-    patch = PathPatch(curve.to_path(), lw=plot_style.maplink_linewidth, edgecolor=plot_style.maplink_edgecolor,
-                      linestyle=plot_style.maplink_linestyle, zorder=-5, fill=False)
+    patch = PathPatch(curve.to_path(), lw=plot_style.pathway_link_linewidth, edgecolor=plot_style.pathway_link_edgecolor,
+                      linestyle=plot_style.pathway_link_linestyle, zorder=-5, fill=False)
     ax.add_patch(patch)

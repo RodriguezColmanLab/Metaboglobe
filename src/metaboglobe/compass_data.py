@@ -15,9 +15,8 @@ from pandas import DataFrame
 from metaboglobe import kegg_pathway
 from metaboglobe._translation_to_kegg_id import map_ecrel_to_kegg_reactions, map_gem_id_to_kegg_reactions
 from metaboglobe._util import optimize_for_matching
-from metaboglobe.kegg_pathway import KeggMap, KeggReactionIdWithReversion
-from metaboglobe.kegg_species import KeggReactionId
-
+from metaboglobe.kegg_pathway import KeggMap
+from metaboglobe.kegg_species import KeggReactionId, KeggReactionIdWithReversion
 
 _DEFAULT_OBSM_KEY = "compass"
 

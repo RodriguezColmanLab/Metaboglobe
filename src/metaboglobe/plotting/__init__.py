@@ -26,7 +26,7 @@ class PlotStyle:
     plot_double_arrows: bool = True
 
     flux_cmap: Colormap = matplotlib.colormaps.get_cmap("coolwarm")
-    flux_label: str | None = None
+    flux_colorbar_label: str | None = None
     flux_vmin: float = 0
     flux_vmax: float = 1
     flux_arrowwidth: float = 1.5
@@ -42,14 +42,24 @@ class PlotStyle:
     flux_nan_edgecolor: MPLColor = "#000000"  # Used instead of `self.flux_edgecolor` if no flux is available
     flux_nan_edgewidth: float = 0  # Used instead of `self.flux_edgewidth` if no flux is available
 
+    compound_cmap: Colormap = matplotlib.colormaps.get_cmap("coolwarm")
+    compound_vmin: float = 0
+    compound_vmax: float = 1
     compound_nan_color: MPLColor = "#ffffff"
     compound_edgecolor: MPLColor = "#000000"
     compound_linewidth: float = 0.75
     compound_radius: float = 5
+    compound_colorbar_label: str | None = None
 
-    maplink_edgecolor: MPLColor = "#bbbbbb"
-    maplink_linewidth: float = 3
-    maplink_linestyle: str = ":"
+    # The big boxes referencing other pathways
+    pathway_reference_linewidth: float = 0
+    pathway_reference_edgecolor: MPLColor = "#bbbbbb"
+    pathway_reference_facecolor: MPLColor = "#c1bcb8"
+
+    # The lines from the compounds to the pathway references
+    pathway_link_edgecolor: MPLColor = "#bbbbbb"
+    pathway_link_linewidth: float = 3
+    pathway_link_linestyle: str = ":"
 
     enzyme_textcolor: MPLColor = "#000000"
     enzyme_linewidth: float = 0.75
@@ -72,9 +82,17 @@ class PlotStyle:
 
             setattr(self, key, value)
 
+    def flux_mappable(self) -> ScalarMappable:
+        """Returns a mappable (for use with colorbars) for this plot style for the reaction arrows."""
+        return ScalarMappable(cmap=self.flux_cmap, norm=matplotlib.colors.Normalize(vmin=self.flux_vmin, vmax=self.flux_vmax))
+
+    def compound_mappable(self) -> ScalarMappable:
+        """Returns a mappable (for use with colorbars) for this plot style for the compound dots."""
+        return ScalarMappable(cmap=self.compound_cmap, norm=matplotlib.colors.Normalize(vmin=self.compound_vmin, vmax=self.compound_vmax))
+
 
 def plot_kegg(ax: Axes, kegg_map: KeggMap, plot_style: PlotStyle | None = None, **kwargs) -> ScalarMappable:
-    """Plots the given KEGG map on the given axes, and returns a ScalarMappable that can be used for the colorbar (if any)."""
+    """Plots the given KEGG map on the given axes, and returns a ScalarMappable that can be used for the arrows colorbar (if any)."""
     from . import _kegg_plotting
     if plot_style is None:
         plot_style = PlotStyle()
@@ -91,10 +109,13 @@ def plot_kegg_figure(kegg_map: KeggMap, figure: Figure | None = None, plot_style
 
     figure = plt.figure(figsize=kegg_map.figsize()) if figure is None else figure
     ax = figure.gca()
+    plot_kegg(ax, kegg_map, plot_style=plot_style)
 
-    mappable = plot_kegg(ax, kegg_map, plot_style=plot_style)
-    if plot_style.flux_label is not None:
-        figure.colorbar(mappable, ax=ax, orientation="vertical", label=plot_style.flux_label, shrink=0.2)
+    # Add colorbars if labels are available
+    if plot_style.flux_colorbar_label is not None:
+        figure.colorbar(plot_style.flux_mappable(), ax=ax, orientation="vertical", label=plot_style.flux_colorbar_label, shrink=0.2)
+    if plot_style.compound_colorbar_label is not None:
+        figure.colorbar(plot_style.compound_mappable(), ax=ax, orientation="vertical", label=plot_style.compound_colorbar_label, shrink=0.2)
 
     figure.tight_layout()
     return figure

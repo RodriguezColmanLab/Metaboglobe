@@ -7,7 +7,7 @@ from xml.etree import ElementTree
 import numpy
 
 from metaboglobe._util import optimize_for_matching, get_names_without_stereoisomers, optimize_for_display
-from metaboglobe.kegg_species import KeggReactionId, KeggCompoundId, KeggPathwayId
+from metaboglobe.kegg_species import KeggReactionId, KeggCompoundId, KeggPathwayId, KeggReactionIdWithReversion
 from metaboglobe.math.box_2d import Box2
 from metaboglobe.math.vector_2d import Vector2
 
@@ -149,13 +149,6 @@ class KeggReactionArrow(NamedTuple):
         return self.reaction_enzyme_in_map.reaction_id
 
 
-class KeggReactionIdWithReversion(NamedTuple):
-    """Represents a reaction in the KEGG pathway map, as well as a flag to indicate whether we are looking at the
-    reverse of the reaction."""
-    reaction_id: KeggReactionId
-    reversed: bool
-
-
 def get_display_name(kegg_accession_id: KeggCompoundId) -> str:
     """Gets the display name (including LaTeX codes) for the given Kegg Accession ID (like "C00092")."""
     display_names = _ACCESSION_NUMBER_TO_NAMES.get(kegg_accession_id)
@@ -195,9 +188,11 @@ class KeggMap:
 
     _relations_to_other_pathways: list[KeggOtherPathwayRelationInMap]
     _reaction_arrows: dict[KeggReactionId, list[KeggReactionArrow]]
+    _reaction_by_compound_names: dict[str, list[KeggReactionArrow]]
+
+    _compound_values: dict[KeggCompoundId, float]
     _reactions_forward_values: dict[KeggReactionId, float]
     _reactions_backward_values: dict[KeggReactionId, float]
-    _reaction_by_compound_names: dict[str, list[KeggReactionArrow]]
 
     def __init__(self):
         self._title = "Unnamed"
@@ -208,9 +203,11 @@ class KeggMap:
         self._relations_to_other_pathways = list()
 
         self._reaction_arrows = defaultdict(list)
+        self._reaction_by_compound_names = defaultdict(list)
+
         self._reactions_forward_values = dict()
         self._reactions_backward_values = dict()
-        self._reaction_by_compound_names = defaultdict(list)
+        self._compound_values = dict()
 
     def box(self) -> Box2:
         """Calculates the axis limits for plotting this pathway."""
@@ -285,7 +282,21 @@ class KeggMap:
         """Relations connect entries, identified using the entry IDs."""
         self._relations_to_other_pathways.append(KeggOtherPathwayRelationInMap(compound, pathway))
 
-    def match_reactions(self, *, substrate_names: list[str], product_names: list[str], enzyme_names: list[str] | None = None) -> Iterable[KeggReactionIdWithReversion]:
+    def match_compound(self, compound_name: str) -> KeggCompoundId | None:
+        """Checks for a compound with a matching name. Matching is fuzzy and considers alternative names."""
+        # We reuse the name to reaction mapping set up earlier
+        # Assuming all metabolites are part of at least one reaction, this should work fine
+        compound_name = optimize_for_matching(compound_name)
+        reactions = self._reaction_by_compound_names.get(compound_name, [])
+        for reaction in reactions:
+            if check_for_match([compound_name], reaction.substrate.compound_id):
+                return reaction.substrate.compound_id
+            if check_for_match([compound_name], reaction.product.compound_id):
+                return reaction.product.compound_id
+        return None
+
+    def match_reactions(self, *, substrate_names: list[str], product_names: list[str], enzyme_names: list[str] | None = None) -> Iterable[
+        KeggReactionIdWithReversion]:
         """Given a list of substrate names and product names, searches for a reaction in this pathway that matches
         one of the substrate names and one of the product names. The given names are expected to be names like
         "D-Fructose-6P". The method uses all the known names of Kegg to match. If a name is provided without
@@ -368,7 +379,8 @@ class KeggMap:
 
     def set_reaction_score(self, reaction: KeggReactionIdWithReversion, score: float):
         """Adds a reaction score to the map with the given id, which can be used for coloring. Raises ValueError
-        if a score was already set for the reaction in the given direction, or if the score is NaN."""
+        if a score was already set for the reaction in the given direction, or if the score is NaN. You can retrieve
+        the score values using `self.forward_value` or `self.backward_value`."""
         if numpy.isnan(score):
             raise ValueError(f"Score is NaN for {self._reaction_id_to_str(reaction.reaction_id)}")
 
@@ -381,13 +393,24 @@ class KeggMap:
                 raise ValueError(f"Duplicate forward score for {self._reaction_id_to_str(reaction.reaction_id)}")
             self._reactions_forward_values[reaction.reaction_id] = score
 
-    def forward_value(self, reaction_id: KeggReactionId) -> float:
-        """Gets the forward value for the given reaction, or NaN if not set."""
-        return self._reactions_forward_values.get(reaction_id, numpy.nan)
+    def get_reaction_score(self, reaction: KeggReactionIdWithReversion) -> float:
+        """Gets the forward or backward value for the given reaction, or NaN if not set."""
+        if reaction.reversed:
+            return self._reactions_backward_values.get(reaction.reaction_id, numpy.nan)
+        return self._reactions_forward_values.get(reaction.reaction_id, numpy.nan)
 
-    def backward_value(self, reaction_id: KeggReactionId) -> float:
-        """Gets the backward value for the given reaction, or NaN if not set."""
-        return self._reactions_backward_values.get(reaction_id, numpy.nan)
+    def set_compound_score(self, compound_id: KeggCompoundId, score: float):
+        """Adds a compound score to the map."""
+        if numpy.isnan(score):
+            raise ValueError(f"Score is NaN for {self._reaction_id_to_str(compound_id)}")
+        if compound_id in self._compound_values:
+            raise ValueError(f"Score for compound {compound_id} already set")
+
+        self._compound_values[compound_id] = score
+
+    def get_compound_score(self, compound_id: KeggCompoundId) -> float:
+        """Gets the compound score for the given compound, or NaN if not set."""
+        return self._compound_values.get(compound_id, numpy.nan)
 
     def has_relations_or_reactions(self, entry: KeggCompoundId | KeggReactionId | KeggPathwayId) -> bool:
         """Searches for any reactions for the given entry."""

@@ -3,8 +3,8 @@ import re
 import pandas
 
 from metaboglobe import _translation_to_kegg_id
-from metaboglobe.kegg_pathway import KeggMap, KeggReactionIdWithReversion
-from metaboglobe.kegg_species import KeggReactionId
+from metaboglobe.kegg_pathway import KeggMap
+from metaboglobe.kegg_species import KeggReactionId, KeggReactionIdWithReversion
 
 _ECREL_DETECTION = re.compile(r"(ec:)?([0-9]+\.)+[0-9]+")
 

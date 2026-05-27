@@ -1,3 +1,6 @@
+from typing import NamedTuple
+
+
 class KeggReactionId:
     """Holds a KEGG reaction ID, for example "rn:R02235". Immutable object."""
 
@@ -38,6 +41,24 @@ class KeggReactionId:
 
     def __hash__(self) -> int:
         return hash(self._reaction_id)
+
+    def forwards(self) -> "KeggReactionIdWithReversion":
+        """Returns a `KeggReactionIdWithReversion` object representing the forward direction of this reaction."""
+        return KeggReactionIdWithReversion(self, reversed=False)
+
+    def backwards(self) -> "KeggReactionIdWithReversion":
+        """Returns a `KeggReactionIdWithReversion` object representing the reverse direction of this reaction."""
+        return KeggReactionIdWithReversion(self, reversed=True)
+
+
+class KeggReactionIdWithReversion(NamedTuple):
+    """Represents a reaction in the KEGG pathway map, as well as a flag to indicate whether we are looking at the
+    reverse of the reaction.
+
+    To create instances, you can just call the `forwards()` or `backwards()` methods on the `KeggReactionId` object.
+    """
+    reaction_id: KeggReactionId
+    reversed: bool
 
 
 class KeggCompoundId:
@@ -122,3 +143,5 @@ class KeggPathwayId:
 
     def __hash__(self) -> int:
         return hash(self._pathway_id)
+
+
