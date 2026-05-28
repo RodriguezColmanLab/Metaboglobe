@@ -16,7 +16,7 @@ Make sure you have Python installed. It might be useful to install Metaboglobe i
 First, download a KEGG pathway map in KGML format from the KEGG website. For example, the Glycolysis pathway map for humans can be downloaded from https://rest.kegg.jp/get/hsa00010/kgml . Then, you can load it using the `load_kegg_map` function:
 
 ```python
-import metaboglobe.kegg_pathway
+import metaboglobe
 # load in the KEGG map for glycolysis
 kegg_map = metaboglobe.kegg_pathway.load_kegg_map("path/to/glycolysis_map.xml")
 ``` 
@@ -24,7 +24,7 @@ kegg_map = metaboglobe.kegg_pathway.load_kegg_map("path/to/glycolysis_map.xml")
 Plotting the map itself can be done as follows:
 
 ```python
-import metaboglobe.plotting
+import metaboglobe
 from matplotlib import pyplot as plt
 
 kegg_map = ...  # See above
@@ -66,7 +66,7 @@ data_frame = pandas.DataFrame({
 Then you can add the flux values to the KEGG map using the `insert_values_in_map` function:
 
 ```python
-import metaboglobe.tabular_data
+import metaboglobe
 
 kegg_map = ...  # See above
 data_frame = ...  # See above
@@ -90,7 +90,7 @@ data_frame = pandas.read_csv("path/to/your/data.csv")
 First, load in the scRNAseq data into an AnnData object, and make sure you have ran Compass on the package. Then, load in your results:
 
 ```python
-import metaboglobe.compass_data
+import metaboglobe
 
 adata = ...  # load in your AnnData object
 metaboglobe.compass_data.add_compass_output(adata, "path/to/compass output/")
@@ -101,7 +101,7 @@ This folder is expected to have a `reactions.tsv` file and a `model.json.gz` fil
 Second, load in the KEGG pathway map you want to plot (see above), and apply the coloring to the map:
 
 ```python
-import metaboglobe.compass_data
+import metaboglobe
 
 kegg_map = ...  # load in the KEGG map for glycolysis
 adata = ...  # load in your AnnData object with Compass results
