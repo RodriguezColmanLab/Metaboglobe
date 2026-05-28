@@ -1,5 +1,5 @@
 import re
-
+import numpy
 import pandas
 
 from metaboglobe import _translation_to_kegg_id
@@ -46,10 +46,14 @@ def _parse_compounds(full_reaction_equation: str, compounds_str: str):
     return compounds
 
 
-def insert_values_in_map(kegg_map: KeggMap, data_frame: pandas.DataFrame, *, reaction_identifier_col: str, value_col: str,
-                         reversed_col: str | None = None, enzyme_col: str | None = None, enzyme_col_sep: str = ";") -> None:
+def insert_values_in_map(kegg_map: KeggMap, data_frame: pandas.DataFrame, *,
+                         reaction_identifier_col: str | None = None,
+                         value_col: str,
+                         reversed_col: str | None = None,
+                         enzyme_col: str | None = None,
+                         enzyme_col_sep: str = ";") -> None:
     """Reads values from the given data frame into the given metabolic map. The dataframe must have a column with
-    reactions, and a column with values. Optionally, it can also have a column that indicates whether the
+    reactions and/or enzymes, and a column with values. Optionally, it can also have a column that indicates whether the
     reaction must be reversed or not. (If reversed is true, the corresponding value is registered for the inverse
     reaction instead.)
 
@@ -71,20 +75,49 @@ def insert_values_in_map(kegg_map: KeggMap, data_frame: pandas.DataFrame, *, rea
     - a KEGG Reaction ID: "rn:R11608". The "rn:" prefix is optional.
     - a GEM reaction ID: "MAR08691". The "MAR" prefix is *mandatory*.
 
-    The enzyme_col parameter is only used if reaction_identifier_col points to a reaction. If present, reactions are
-    only matched if at least one enzyme name matches. It is expected to be a list, or a string separated by the
-    enzyme_col_sep parameter (default ";"). This is useful to avoid matching the same reaction multiple times if
-    multiple reactions share the same substrate and product in the same map.
-    """
+    The enzymes can be:
+    - a string, separated by enzyme_col_sep (";" by default), representing gene names.
+    - a list of strings, representing gene names.
 
-    reactions_all = data_frame[reaction_identifier_col]
+    The enzyme_col parameter is only used if reaction_identifier_col is None (then we match solely by enzyme),
+    or if it points to a reaction equation (then we further narrow down reaction equations by enzyme).
+    However, if reaction_identifier_col  points to a reaction id, the enzyme_col is ignored, as the reaction is already
+    fully defined.
+
+    When matching solely by enzyme, multiple enzymes can point to the same reaction. In that case, the absolute highest
+    value is used. So if one enzyme has a value of -1.5, and the other of +1, but they belong to the same reaction, only
+    the -1.5 is plotted.
+    """
+    kegg_map.clear_reaction_scores()
+
+    reactions_all = data_frame[reaction_identifier_col] if reaction_identifier_col is not None else None
     values_all = data_frame[value_col]
     if reversed_col is None:
-        reversions_all = pandas.Series(False, index=reactions_all.index)  # Just assume no reactions are reversed
+        reversions_all = pandas.Series(False, index=values_all.index)  # Just assume no reactions are reversed
     else:
         reversions_all = data_frame[reversed_col]
     enzymes_all = data_frame[enzyme_col] if enzyme_col is not None else None
 
+    # Match by enzymes
+    if reactions_all is None:
+        if enzymes_all is None:
+            raise ValueError("Reactions DataFrame must have reaction_identifier_col or enzyme_col")
+        for i in range(len(enzymes_all)):
+            reaction_value = values_all[i]
+            reaction_reversed = reversions_all[i]
+            enzyme_names = None
+            enzymes_str = enzymes_all[i] if enzymes_all is not None else None
+            if isinstance(enzymes_str, str):
+                enzyme_names = enzymes_str.split(enzyme_col_sep)
+            elif isinstance(enzymes_str, list):
+                enzyme_names = enzymes_str
+            for matched_reaction_id in kegg_map.match_reactions_for_enzymes(enzyme_names):
+                matched_reaction = matched_reaction_id.backwards() if reversed_col else matched_reaction_id.forwards()
+                existing_value = kegg_map.get_reaction_score(matched_reaction)
+                kegg_map.set_reaction_score(matched_reaction, _nan_abs_max(existing_value, reaction_value))
+        return
+
+    # Match by reaction identifiers
     for i in range(len(reactions_all)):
         reaction = reactions_all[i]
         if not isinstance(reaction, str):
@@ -128,3 +161,14 @@ def insert_values_in_map(kegg_map: KeggMap, data_frame: pandas.DataFrame, *, rea
         elif reaction.startswith("MAR"):
             for matched_reaction in _translation_to_kegg_id.map_gem_id_to_kegg_reactions(reaction):
                 kegg_map.set_reaction_score(KeggReactionIdWithReversion(matched_reaction, reaction_reversed), reaction_value)
+
+
+def _nan_abs_max(number1: float, number2: float) -> float:
+    if numpy.isnan(number1):
+        return number2
+    if numpy.isnan(number2):
+        return number1
+    if abs(number1) > abs(number2):
+        return number1
+    else:
+        return number2

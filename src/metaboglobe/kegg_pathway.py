@@ -188,7 +188,7 @@ class KeggMap:
 
     _relations_to_other_pathways: list[KeggOtherPathwayRelationInMap]
     _reaction_arrows: dict[KeggReactionId, list[KeggReactionArrow]]
-    _reaction_by_compound_names: dict[str, list[KeggReactionArrow]]
+    _reaction_by_compound_or_enzyme_names: dict[str, list[KeggReactionArrow]]
 
     _compound_values: dict[KeggCompoundId, float]
     _reactions_forward_values: dict[KeggReactionId, float]
@@ -203,7 +203,7 @@ class KeggMap:
         self._relations_to_other_pathways = list()
 
         self._reaction_arrows = defaultdict(list)
-        self._reaction_by_compound_names = defaultdict(list)
+        self._reaction_by_compound_or_enzyme_names = defaultdict(list)
 
         self._reactions_forward_values = dict()
         self._reactions_backward_values = dict()
@@ -272,11 +272,13 @@ class KeggMap:
         reaction = KeggReactionArrow(enzyme, substrate, product, reaction_type)
         self._reaction_arrows[enzyme.reaction_id].append(reaction)
 
-        # Populate compound name mappings
+        # Populate name lookup
         for kegg_compound_id in [substrate.compound_id, product.compound_id]:
             names = _ACCESSION_NUMBER_TO_NAMES.get(kegg_compound_id, [])
             for name in names:
-                self._reaction_by_compound_names[optimize_for_matching(name)].append(reaction)
+                self._reaction_by_compound_or_enzyme_names[optimize_for_matching(name)].append(reaction)
+        for gene_name in enzyme.gene_names_for_matching:
+            self._reaction_by_compound_or_enzyme_names[gene_name].append(reaction)
 
     def add_pathway_relation(self, compound: KeggCompoundInMap, pathway: KeggPathwayReferenceInMap):
         """Relations connect entries, identified using the entry IDs."""
@@ -287,13 +289,20 @@ class KeggMap:
         # We reuse the name to reaction mapping set up earlier
         # Assuming all metabolites are part of at least one reaction, this should work fine
         compound_name = optimize_for_matching(compound_name)
-        reactions = self._reaction_by_compound_names.get(compound_name, [])
+        reactions = self._reaction_by_compound_or_enzyme_names.get(compound_name, [])
         for reaction in reactions:
             if check_for_match([compound_name], reaction.substrate.compound_id):
                 return reaction.substrate.compound_id
             if check_for_match([compound_name], reaction.product.compound_id):
                 return reaction.product.compound_id
         return None
+
+    def match_reactions_for_enzymes(self, gene_names: list[str]) -> Iterable[KeggReactionId]:
+        """Returns any reaction that matches any of the given enzymes. Enzymes are identified by their gene names."""
+        for enzyme_name in gene_names:
+            enzyme_name_optimized = optimize_for_matching(enzyme_name)
+            for reaction in self._reaction_by_compound_or_enzyme_names[enzyme_name_optimized]:
+                yield reaction.reaction_id
 
     def match_reactions(self, *, substrate_names: list[str], product_names: list[str], enzyme_names: list[str] | None = None) -> Iterable[
         KeggReactionIdWithReversion]:
@@ -313,7 +322,7 @@ class KeggMap:
         enzyme_names = [optimize_for_matching(name) for name in enzyme_names]
 
         for substrate_name in substrate_names:
-            for reaction in self._reaction_by_compound_names.get(substrate_name, []):
+            for reaction in self._reaction_by_compound_or_enzyme_names.get(substrate_name, []):
                 # Found a relation with at least one match somewhere
 
                 if enzyme_names and not _check_for_gene_name_match(enzyme_names, reaction.reaction_enzyme_in_map.gene_names_for_matching):
@@ -377,6 +386,11 @@ class KeggMap:
         """Gets all available relations to other pathways."""
         return self._relations_to_other_pathways
 
+    def clear_reaction_scores(self):
+        """Removes all reactiom scores from the map. The reactions themselves remain."""
+        self._reactions_forward_values.clear()
+        self._reactions_backward_values.clear()
+
     def set_reaction_score(self, reaction: KeggReactionIdWithReversion, score: float):
         """Adds a reaction score to the map with the given id, which can be used for coloring. Raises ValueError
         if a score was already set for the reaction in the given direction, or if the score is NaN. You can retrieve
@@ -398,6 +412,10 @@ class KeggMap:
         if reaction.reversed:
             return self._reactions_backward_values.get(reaction.reaction_id, numpy.nan)
         return self._reactions_forward_values.get(reaction.reaction_id, numpy.nan)
+
+    def clear_compound_scores(self):
+        """Removes all compounds scores from the map. The compounds themselves remain."""
+        self._compound_values.clear()
 
     def set_compound_score(self, compound_id: KeggCompoundId, score: float):
         """Adds a compound score to the map."""
